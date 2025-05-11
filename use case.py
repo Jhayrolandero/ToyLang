@@ -1,5 +1,6 @@
 import sys
 import re
+import readline  # Add readline import for arrow key support
 
 #############################
 # Lexer Implementation
@@ -102,7 +103,9 @@ class Lexer:
                     'not': 'NOT',
                     'struct': 'STRUCT',
                     'true': 'BOOLEAN',
-                    'false': 'BOOLEAN'
+                    'false': 'BOOLEAN',
+                    'let': 'LET',
+                    'const': 'CONST'
                 }
                 if identifier in reserved:
                     if identifier in ('true', 'false'):
@@ -250,11 +253,15 @@ class Parser:
                            | print_statement
                            | return_statement
                            | expression"""
-        # Check for declaration (type ID)
-        if self.current_token.type == 'ID' and self.peek().type == 'ID':
+        # Check for declaration (LET/CONST ID)
+        if self.current_token.type in ('LET', 'CONST'):
             return self.declaration()
                 
         if self.current_token.type == 'ID' and self.peek().type == 'EQUALS':
+            # Check if variable is declared before assignment
+            var_name = self.current_token.value
+            if var_name not in self.symbol_table:
+                self.error(f"Variable '{var_name}' must be declared with 'let' or 'const' before use")
             return self.assignment()
         elif self.current_token.type == 'PRINT':
             return self.print_statement()
@@ -316,14 +323,14 @@ class Parser:
         return ('assign', var_name, expr)
         
     def declaration(self):
-        """declaration : ID ID EQUALS expression"""
-        type_name = self.current_token.value
-        self.eat('ID')
+        """declaration : (LET | CONST) ID EQUALS expression"""
+        is_const = self.current_token.type == 'CONST'
+        self.eat(self.current_token.type)  # eat LET or CONST
         var_name = self.current_token.value
         self.eat('ID')
         self.eat('EQUALS')
         expr = self.expression()
-        return ('declare', type_name, var_name, expr)
+        return ('declare', var_name, expr, is_const)
         
     def function_def(self):
         """function_def : DEF ID LPAREN param_list RPAREN LBRACE statement_list RBRACE"""
@@ -617,13 +624,22 @@ class Interpreter:
             elif ntype == 'assign':
                 var = node[1]
                 val = self.evaluate(node[2], local_symbols)
+                # Check if variable is const
+                if var in self.symbol_table and isinstance(self.symbol_table[var], tuple) and self.symbol_table[var][1]:
+                    raise Exception(f"Cannot reassign constant variable '{var}'")
                 local_symbols[var] = val
                 self.symbol_table[var] = val
                 return val
             elif ntype == 'declare':
-                val = self.evaluate(node[3], local_symbols)
-                local_symbols[node[2]] = val
-                self.symbol_table[node[2]] = val
+                var_name = node[1]
+                is_const = node[3]
+                # Check if variable is already declared
+                if var_name in local_symbols or var_name in self.symbol_table:
+                    raise Exception(f"Redeclaration error: Variable '{var_name}' has already been declared")
+                val = self.evaluate(node[2], local_symbols)
+                # Store value with const flag
+                local_symbols[var_name] = (val, is_const)
+                self.symbol_table[var_name] = (val, is_const)
                 return val
             elif ntype == 'number':
                 return node[1]
@@ -634,9 +650,11 @@ class Interpreter:
             elif ntype == 'var':
                 var = node[1]
                 if var in local_symbols:
-                    return local_symbols[var]
+                    val = local_symbols[var]
+                    return val[0] if isinstance(val, tuple) else val
                 elif var in self.symbol_table:
-                    return self.symbol_table[var]
+                    val = self.symbol_table[var]
+                    return val[0] if isinstance(val, tuple) else val
                 else:
                     raise Exception(f"Undefined variable: {var}")
             elif ntype in ('+', '-', '*', '/', '==', '!=', '>', '<', '>=', '<='):
@@ -774,6 +792,9 @@ def main():
     struct_table = {}
     parser = None
     interpreter = None
+
+    # Enable readline for arrow key navigation
+    readline.set_auto_history(True)
 
     while True:
         try:

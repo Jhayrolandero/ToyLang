@@ -114,6 +114,11 @@ class Lexer:
                 return Token('ID', identifier, self.lineno)
                 
             # Handle multi-character operators first
+            if self.current_char == '=' and self.peek() == '>':
+                self.advance()
+                self.advance()
+                return Token('ARROW', '=>', self.lineno)
+                
             if self.current_char == '=' and self.peek() == '=':
                 self.advance()
                 self.advance()
@@ -537,7 +542,8 @@ class Parser:
                              | ID
                              | ID LPAREN arg_list RPAREN
                              | LPAREN expression RPAREN
-                             | primary_expression DOT ID"""
+                             | primary_expression DOT ID
+                             | arrow_function"""
         token = self.current_token
         
         if token.type == 'NUMBER':
@@ -551,6 +557,37 @@ class Parser:
             return ('string', token.value)
         elif token.type == 'LPAREN':
             self.eat('LPAREN')
+            # Check if this is an arrow function
+            if self.current_token.type == 'ID':
+                # Save current position
+                saved_pos = self.lexer.pos
+                saved_lineno = self.lexer.lineno
+                saved_current_char = self.lexer.current_char
+                saved_token = self.current_token
+                
+                # Try to parse as arrow function
+                try:
+                    params = []
+                    while self.current_token.type == 'ID':
+                        params.append(self.current_token.value)
+                        self.eat('ID')
+                        if self.current_token.type == 'COMMA':
+                            self.eat('COMMA')
+                    
+                    if self.current_token.type == 'RPAREN':
+                        self.eat('RPAREN')
+                        if self.current_token.type == 'ARROW':
+                            self.eat('ARROW')
+                            body = self.expression()
+                            return ('arrow_func', params, body)
+                except:
+                    # If parsing fails, restore position and continue as normal expression
+                    self.lexer.pos = saved_pos
+                    self.lexer.lineno = saved_lineno
+                    self.lexer.current_char = saved_current_char
+                    self.current_token = saved_token
+                
+            # Normal parenthesized expression
             node = self.expression()
             self.eat('RPAREN')
             return node
@@ -591,6 +628,13 @@ class Parser:
             args.append(self.expression())
             
         return args
+        
+    def arrow_function(self):
+        """arrow_function : ARROW param_list expression"""
+        self.eat('ARROW')
+        params = self.param_list()
+        body = self.expression()
+        return ('arrow_func', params, body)
         
     def parse(self):
         return self.program()
@@ -734,30 +778,12 @@ class Interpreter:
             elif ntype == 'func_def':
                 return None
             elif ntype == 'func_call':
-                func_name = node[1]
+                func = self.evaluate(('var', node[1]), local_symbols)
                 args = [self.evaluate(arg, local_symbols) for arg in node[2]]
-                
-                if func_name in self.struct_table:
-                    fields = self.struct_table[func_name]
-                    if len(args) != len(fields):
-                        raise Exception(f"Incorrect number of arguments for struct {func_name}")
-                    return {'__struct__': func_name, **dict(zip(fields, args))}
-                elif func_name in self.function_table:
-                    func_def = self.function_table[func_name]
-                    param_list = func_def[2]
-                    stmts = func_def[3]
-                    if len(args) != len(param_list):
-                        raise Exception(f"Incorrect number of arguments for function '{func_name}'")
-                    local_env = dict(zip(param_list, args))
-                    try:
-                        result = None
-                        for stmt in stmts:
-                            result = self.evaluate(stmt, local_env)
-                    except ReturnValue as rv:
-                        return rv.value
-                    return result
+                if callable(func):
+                    return func(*args)
                 else:
-                    raise Exception(f"Undefined function: {func_name}")
+                    raise Exception(f"'{node[1]}' is not callable")
             elif ntype == 'return':
                 val = self.evaluate(node[1], local_symbols)
                 raise ReturnValue(val)
@@ -770,6 +796,19 @@ class Interpreter:
                     return obj[field]
                 else:
                     raise Exception(f"Field '{field}' not found in object")
+            elif ntype == 'arrow_func':
+                params = node[1]
+                body = node[2]
+                # Create a closure that captures the current environment
+                def arrow_func(*args):
+                    if len(args) != len(params):
+                        raise Exception(f"Arrow function expected {len(params)} arguments, got {len(args)}")
+                    # Create new local environment for the function
+                    func_env = dict(zip(params, args))
+                    # Merge with outer environment
+                    func_env.update(local_symbols)
+                    return self.evaluate(body, func_env)
+                return arrow_func
             else:
                 raise Exception(f"Unknown node type: {ntype}")
         else:

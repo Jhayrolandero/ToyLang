@@ -597,18 +597,26 @@ class ReturnValue(Exception):
         self.value = value
 
 class Interpreter:
-    def __init__(self, parser):
+    def __init__(self, parser, debug=False):
         self.parser = parser
         self.symbol_table = parser.symbol_table
         self.function_table = parser.function_table
         self.struct_table = parser.struct_table
+        self.debug = debug
         
+    def debug_print(self, message):
+        if self.debug:
+            print(f"[DEBUG] {message}")
+            
     def evaluate(self, node, local_symbols=None):
         if local_symbols is None:
             local_symbols = {}
             
         if isinstance(node, tuple):
             ntype = node[0]
+            if self.debug:
+                self.debug_print(f"Evaluating node: {ntype}")
+                
             if ntype == 'program':
                 result = None
                 for stmt in node[1]:
@@ -619,11 +627,15 @@ class Interpreter:
                 val = self.evaluate(node[2], local_symbols)
                 local_symbols[var] = val
                 self.symbol_table[var] = val
+                if self.debug:
+                    self.debug_print(f"Assigned {var} = {val}")
                 return val
             elif ntype == 'declare':
                 val = self.evaluate(node[3], local_symbols)
                 local_symbols[node[2]] = val
                 self.symbol_table[node[2]] = val
+                if self.debug:
+                    self.debug_print(f"Declared {node[2]} = {val}")
                 return val
             elif ntype == 'number':
                 return node[1]
@@ -765,53 +777,120 @@ class Interpreter:
 # REPL (Read-Eval-Print Loop)
 #############################
 
+def run_file(filename, debug=False):
+    """Run a ToyLang program from a file."""
+    try:
+        with open(filename, 'r') as file:
+            text = file.read()
+            
+        if debug:
+            print("[DEBUG] Running in debug mode")
+            print("[DEBUG] File contents:")
+            print("-------------------")
+            print(text)
+            print("-------------------")
+            
+        # Initialize tables
+        symbol_table = {}
+        function_table = {}
+        struct_table = {}
+        
+        # Create lexer, parser and interpreter
+        lexer = Lexer(text)
+        if debug:
+            print("\n[DEBUG] Tokenizing...")
+            tokens = []
+            while True:
+                token = lexer.get_next_token()
+                tokens.append(token)
+                if token.type == 'EOF':
+                    break
+            print("Tokens:", tokens)
+            lexer = Lexer(text)  # Reset lexer for parser
+            
+        parser = Parser(lexer)
+        parser.symbol_table = symbol_table
+        parser.function_table = function_table
+        parser.struct_table = struct_table
+        
+        if debug:
+            print("\n[DEBUG] Parsing...")
+        result = parser.parse()
+        if debug:
+            print("AST:", result)
+            print("\n[DEBUG] Executing...")
+            
+        interpreter = Interpreter(parser, debug=debug)
+        interpreter.symbol_table = symbol_table
+        interpreter.function_table = function_table
+        interpreter.struct_table = struct_table
+        
+        interpreter.evaluate(result)
+        
+        if debug:
+            print("\n[DEBUG] Final symbol table:", symbol_table)
+            print("[DEBUG] Execution completed")
+        
+    except FileNotFoundError:
+        print(f"Error: File '{filename}' not found")
+    except Exception as e:
+        print(f"Error: {e}")
+
 def main():
-    print("Enter your code (type 'exit' to quit):")
+    if len(sys.argv) > 1:
+        # Run file if provided as argument
+        if sys.argv[1] == 'run' and len(sys.argv) > 2:
+            run_file(sys.argv[2])
+        else:
+            print("Usage: python use_case.py run <filename>")
+    else:
+        # Start REPL if no arguments
+        print("Enter your code (type 'exit' to quit):")
 
-    # Persistent symbol/function/struct tables
-    symbol_table = {}
-    function_table = {}
-    struct_table = {}
-    parser = None
-    interpreter = None
+        # Persistent symbol/function/struct tables
+        symbol_table = {}
+        function_table = {}
+        struct_table = {}
+        parser = None
+        interpreter = None
 
-    while True:
-        try:
-            text = input('>>> ')
-            if text.strip().lower() == 'exit':
-                break
-            if not text.strip():
-                continue
-
-            lexer = Lexer(text)
-            if parser is None:
-                parser = Parser(lexer)
-                # Attach persistent tables
-                parser.symbol_table = symbol_table
-                parser.function_table = function_table
-                parser.struct_table = struct_table
-                interpreter = Interpreter(parser)
-                interpreter.symbol_table = symbol_table
-                interpreter.function_table = function_table
-                interpreter.struct_table = struct_table
-            else:
-                parser.lexer = lexer
-                parser.current_token = lexer.get_next_token()
-
+        while True:
             try:
-                result = parser.parse()
-                output = interpreter.evaluate(result)
-                if output is not None:
-                    print(f"=> {output}")
-            except Exception as e:
-                print(f"Error: {e}")
+                text = input('>>> ')
+                if text.strip().lower() == 'exit':
+                    break
+                if not text.strip():
+                    continue
 
-        except KeyboardInterrupt:
-            print("\nExiting...")
-            break
-        except EOFError:
-            print("\nExiting...")
-            break
+                lexer = Lexer(text)
+                if parser is None:
+                    parser = Parser(lexer)
+                    # Attach persistent tables
+                    parser.symbol_table = symbol_table
+                    parser.function_table = function_table
+                    parser.struct_table = struct_table
+                    interpreter = Interpreter(parser)
+                    interpreter.symbol_table = symbol_table
+                    interpreter.function_table = function_table
+                    interpreter.struct_table = struct_table
+                else:
+                    parser.lexer = lexer
+                    parser.current_token = lexer.get_next_token()
+
+                try:
+                    result = parser.parse()
+                    output = interpreter.evaluate(result)
+                    if output is not None:
+                        print(f"=> {output}")
+                except Exception as e:
+                    print(f"Error: {e}")
+
+            except KeyboardInterrupt:
+                print("\nExiting...")
+                break
+            except EOFError:
+                print("\nExiting...")
+                break
 
 if __name__ == '__main__':
     main()

@@ -1,0 +1,36 @@
+print("Testing for loops in Chan:");
+
+print("1. Simple counting from 0 to 4:");
+number i = 0;
+for (i = 0; i < 5; i = i + 1) {
+    print(i);
+}
+
+print("2. Counting by 2s:");
+number i = 0;
+for (i = 0; i < 10; i = i + 2) {
+    print(i);
+}
+
+print("3. Countdown from 5:");
+number i = 5;
+for (i = 5; i > 0; i = i - 1) {
+    print(i);
+}
+
+number sum = 0;
+print("4. Sum of numbers 1 to 5:");
+number i = 1;
+for (i = 1; i <= 5; i = i + 1) {
+    sum = sum + i;
+    print(sum);
+}
+
+print("5. Multiplication table 1-3:");
+number i = 1;
+number j = 1;
+for (i = 1; i <= 3; i = i + 1) {
+    for (j = 1; j <= 3; j = j + 1) {
+        print(i * j);
+    }
+} 

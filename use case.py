@@ -105,7 +105,12 @@ class Lexer:
                     'true': 'BOOLEAN',
                     'false': 'BOOLEAN',
                     'let': 'LET',
-                    'const': 'CONST'
+                    'const': 'CONST',
+                    'push': 'PUSH',
+                    'pop': 'POP',
+                    'length': 'LENGTH',
+                    'class': 'CLASS',
+                    'new': 'NEW'
                 }
                 if identifier in reserved:
                     if identifier in ('true', 'false'):
@@ -200,6 +205,14 @@ class Lexer:
                 self.advance()
                 return Token('LT', '<', self.lineno)
                 
+            if self.current_char == '[':
+                self.advance()
+                return Token('LBRACKET', '[', self.lineno)
+                
+            if self.current_char == ']':
+                self.advance()
+                return Token('RBRACKET', ']', self.lineno)
+                
             self.error(f"Invalid character '{self.current_char}'")
             
         return Token('EOF', None)
@@ -215,6 +228,7 @@ class Parser:
         self.symbol_table = {}
         self.function_table = {}
         self.struct_table = {}
+        self.class_table = {}
         
     def error(self, message):
         raise Exception(f"Parser error at line {self.lexer.lineno}: {message}")
@@ -242,7 +256,7 @@ class Parser:
         """statement : simple_statement SEMICOLON
                      | compound_statement SEMICOLON
                      | compound_statement"""
-        if self.current_token.type in ('DEF', 'IF', 'WHILE', 'FOR', 'STRUCT'):
+        if self.current_token.type in ('DEF', 'IF', 'WHILE', 'FOR', 'STRUCT', 'CLASS'):
             stmt = self.compound_statement()
             if self.current_token.type == 'SEMICOLON':
                 self.eat('SEMICOLON')
@@ -298,7 +312,8 @@ class Parser:
                              | if_statement
                              | while_loop
                              | for_loop
-                             | struct_def"""
+                             | struct_def
+                             | class_def"""
         token = self.current_token
         if token.type == 'DEF':
             return self.function_def()
@@ -310,6 +325,8 @@ class Parser:
             return self.for_loop()
         elif token.type == 'STRUCT':
             return self.struct_def()
+        elif token.type == 'CLASS':
+            return self.class_def()
         else:
             self.error(f"Unexpected token {token.type} in compound statement")
             
@@ -456,6 +473,40 @@ class Parser:
             
         return fields
         
+    def class_def(self):
+        """class_def : CLASS ID LBRACE method_list RBRACE"""
+        self.eat('CLASS')
+        class_name = self.current_token.value
+        self.eat('ID')
+        self.eat('LBRACE')
+        methods = self.method_list()
+        self.eat('RBRACE')
+        
+        # Store class in class table
+        self.class_table[class_name] = ('class_def', class_name, methods)
+        return ('class_def', class_name, methods)
+        
+    def method_list(self):
+        """method_list : method_list method
+                      | method
+                      | empty"""
+        methods = []
+        while self.current_token.type == 'ID':
+            methods.append(self.method())
+        return methods
+        
+    def method(self):
+        """method : ID LPAREN param_list RPAREN LBRACE statement_list RBRACE"""
+        method_name = self.current_token.value
+        self.eat('ID')
+        self.eat('LPAREN')
+        params = self.param_list()
+        self.eat('RPAREN')
+        self.eat('LBRACE')
+        statements = self.statement_list()
+        self.eat('RBRACE')
+        return ('method', method_name, params, statements)
+        
     def expression(self):
         """expression : logical_or_expression"""
         return self.logical_or_expression()
@@ -543,7 +594,10 @@ class Parser:
                              | ID LPAREN arg_list RPAREN
                              | LPAREN expression RPAREN
                              | primary_expression DOT ID
-                             | arrow_function"""
+                             | primary_expression DOT ID LPAREN arg_list RPAREN
+                             | array_literal
+                             | array_access
+                             | new_expression"""
         token = self.current_token
         
         if token.type == 'NUMBER':
@@ -555,6 +609,10 @@ class Parser:
         elif token.type == 'STRING':
             self.eat('STRING')
             return ('string', token.value)
+        elif token.type == 'LBRACKET':
+            return self.array_literal()
+        elif token.type == 'NEW':
+            return self.new_expression()
         elif token.type == 'LPAREN':
             self.eat('LPAREN')
             # Check if this is an arrow function
@@ -607,7 +665,21 @@ class Parser:
                 self.eat('DOT')
                 field = self.current_token.value
                 self.eat('ID')
-                return ('field_access', ('var', id_name), field)
+                
+                # Check for method call
+                if self.current_token.type == 'LPAREN':
+                    self.eat('LPAREN')
+                    args = self.arg_list()
+                    self.eat('RPAREN')
+                    return ('method_call', ('var', id_name), field, args)
+                else:
+                    return ('field_access', ('var', id_name), field)
+            # Check for array access
+            elif self.current_token.type == 'LBRACKET':
+                self.eat('LBRACKET')
+                index = self.expression()
+                self.eat('RBRACKET')
+                return ('array_access', ('var', id_name), index)
             else:
                 return ('var', id_name)
         else:
@@ -636,6 +708,33 @@ class Parser:
         body = self.expression()
         return ('arrow_func', params, body)
         
+    def array_literal(self):
+        """array_literal : LBRACKET expression_list RBRACKET"""
+        self.eat('LBRACKET')
+        elements = []
+        if self.current_token.type != 'RBRACKET':
+            elements = self.expression_list()
+        self.eat('RBRACKET')
+        return ('array', elements)
+        
+    def expression_list(self):
+        """expression_list : expression (COMMA expression)*"""
+        elements = [self.expression()]
+        while self.current_token.type == 'COMMA':
+            self.eat('COMMA')
+            elements.append(self.expression())
+        return elements
+        
+    def new_expression(self):
+        """new_expression : NEW ID LPAREN arg_list RPAREN"""
+        self.eat('NEW')
+        class_name = self.current_token.value
+        self.eat('ID')
+        self.eat('LPAREN')
+        args = self.arg_list()
+        self.eat('RPAREN')
+        return ('new', class_name, args)
+        
     def parse(self):
         return self.program()
 
@@ -653,6 +752,7 @@ class Interpreter:
         self.symbol_table = parser.symbol_table
         self.function_table = parser.function_table
         self.struct_table = parser.struct_table
+        self.class_table = parser.class_table
         
     def evaluate(self, node, local_symbols=None):
         if local_symbols is None:
@@ -782,6 +882,27 @@ class Interpreter:
                 args = [self.evaluate(arg, local_symbols) for arg in node[2]]
                 if callable(func):
                     return func(*args)
+                elif node[1] == 'push' and len(args) == 2:
+                    # Built-in array push operation
+                    array, value = args
+                    if not isinstance(array, list):
+                        raise Exception("Can only push to arrays")
+                    array.append(value)
+                    return array
+                elif node[1] == 'pop' and len(args) == 1:
+                    # Built-in array pop operation
+                    array = args[0]
+                    if not isinstance(array, list):
+                        raise Exception("Can only pop from arrays")
+                    if not array:
+                        raise Exception("Cannot pop from empty array")
+                    return array.pop()
+                elif node[1] == 'length' and len(args) == 1:
+                    # Built-in array length operation
+                    array = args[0]
+                    if not isinstance(array, list):
+                        raise Exception("Can only get length of arrays")
+                    return len(array)
                 else:
                     raise Exception(f"'{node[1]}' is not callable")
             elif ntype == 'return':
@@ -809,6 +930,70 @@ class Interpreter:
                     func_env.update(local_symbols)
                     return self.evaluate(body, func_env)
                 return arrow_func
+            elif ntype == 'array':
+                elements = [self.evaluate(elem, local_symbols) for elem in node[1]]
+                return elements
+            elif ntype == 'array_access':
+                array = self.evaluate(node[1], local_symbols)
+                index = self.evaluate(node[2], local_symbols)
+                if not isinstance(array, list):
+                    raise Exception(f"Cannot index into non-array type")
+                if not isinstance(index, int):
+                    raise Exception(f"Array index must be an integer")
+                if index < 0 or index >= len(array):
+                    raise Exception(f"Array index out of bounds")
+                return array[index]
+            elif ntype == 'class_def':
+                return None
+            elif ntype == 'new':
+                class_name = node[1]
+                args = [self.evaluate(arg, local_symbols) for arg in node[2]]
+                
+                if class_name not in self.class_table:
+                    raise Exception(f"Undefined class: {class_name}")
+                    
+                class_def = self.class_table[class_name]
+                methods = class_def[2]
+                
+                # Create instance with methods
+                instance = {'__class__': class_name}
+                for method in methods:
+                    method_name = method[1]
+                    method_params = method[2]
+                    method_body = method[3]
+                    
+                    def create_method(method_name, method_params, method_body):
+                        def method_func(*args):
+                            if len(args) != len(method_params):
+                                raise Exception(f"Method {method_name} expected {len(method_params)} arguments, got {len(args)}")
+                            method_env = dict(zip(method_params, args))
+                            method_env['this'] = instance
+                            method_env.update(local_symbols)
+                            try:
+                                result = None
+                                for stmt in method_body:
+                                    result = self.evaluate(stmt, method_env)
+                                return result
+                            except ReturnValue as rv:
+                                return rv.value
+                        return method_func
+                    
+                    instance[method_name] = create_method(method_name, method_params, method_body)
+                
+                return instance
+            elif ntype == 'method_call':
+                obj = self.evaluate(node[1], local_symbols)
+                method_name = node[2]
+                args = [self.evaluate(arg, local_symbols) for arg in node[3]]
+                
+                if not isinstance(obj, dict) or method_name not in obj:
+                    raise Exception(f"Method '{method_name}' not found in object")
+                    
+                method = obj[method_name]
+                if not callable(method):
+                    raise Exception(f"'{method_name}' is not a method")
+                    
+                return method(*args)
             else:
                 raise Exception(f"Unknown node type: {ntype}")
         else:
@@ -829,6 +1014,7 @@ def main():
     symbol_table = {}
     function_table = {}
     struct_table = {}
+    class_table = {}
     parser = None
     interpreter = None
 
@@ -850,10 +1036,12 @@ def main():
                 parser.symbol_table = symbol_table
                 parser.function_table = function_table
                 parser.struct_table = struct_table
+                parser.class_table = class_table
                 interpreter = Interpreter(parser)
                 interpreter.symbol_table = symbol_table
                 interpreter.function_table = function_table
                 interpreter.struct_table = struct_table
+                interpreter.class_table = class_table
             else:
                 parser.lexer = lexer
                 parser.current_token = lexer.get_next_token()

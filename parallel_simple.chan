@@ -1,0 +1,44 @@
+// Simple demonstration of parallel execution in Chan
+
+print("Sequential execution:");
+print("Task 1 starting");
+sleep(1000);  // Sleep for 1 second
+print("Task 1 completed after 1 second");
+print("Task 2 starting");
+sleep(1000);  // Sleep for 1 second
+print("Task 2 completed after 1 second");
+print("Sequential tasks took approximately 2 seconds total");
+
+print("\nParallel execution:");
+
+// These two blocks will execute in parallel
+parallel {
+    print("Parallel task 1 starting");
+    sleep(1000);  // Sleep for 1 second
+    print("Parallel task 1 completed after 1 second");
+}
+
+parallel {
+    print("Parallel task 2 starting");
+    sleep(1000);  // Sleep for 1 second
+    print("Parallel task 2 completed after 1 second");
+}
+
+print("Parallel tasks took approximately 1 second total (executed simultaneously)");
+
+// Demonstrate with different timing
+print("\nDifferent timing example:");
+
+parallel {
+    print("Long task starting");
+    sleep(2000);  // Sleep for 2 seconds
+    print("Long task completed after 2 seconds");
+}
+
+parallel {
+    print("Short task starting");
+    sleep(500);   // Sleep for 0.5 seconds
+    print("Short task completed after 0.5 seconds");
+}
+
+print("Tasks completed in the order of their duration"); 

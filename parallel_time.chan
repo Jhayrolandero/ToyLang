@@ -1,0 +1,67 @@
+// Demonstrate parallel execution with timing measurements
+
+// Sequential vs Parallel demonstration
+
+// Record start time
+let start = timestamp();
+
+// Sequential execution
+print("Sequential execution starting at time: " + start);
+print("Task 1 starting");
+sleep(1000);
+print("Task 1 completed after 1 second");
+print("Task 2 starting");
+sleep(1000);
+print("Task 2 completed after 1 second");
+
+// Record end time
+let end = timestamp();
+print("Sequential execution completed in: " + (end - start) + " seconds");
+
+// Reset and prepare for parallel
+print("\n-----------------------\n");
+sleep(500); // Pause between tests
+
+// Record new start time
+start = timestamp();
+print("Parallel execution starting at time: " + start);
+
+// These two tasks should run simultaneously
+parallel {
+    print("Parallel task 1 starting at: " + timestamp());
+    sleep(1000);
+    print("Parallel task 1 completed at: " + timestamp());
+}
+
+parallel {
+    print("Parallel task 2 starting at: " + timestamp());
+    sleep(1000);
+    print("Parallel task 2 completed at: " + timestamp());
+}
+
+// Record parallel end time
+end = timestamp();
+print("Parallel execution completed in: " + (end - start) + " seconds");
+
+// Demonstrate different durations
+print("\n-----------------------\n");
+sleep(500); // Pause between tests
+
+start = timestamp();
+print("Mixed duration parallel tasks starting at: " + start);
+
+parallel {
+    print("Long task starting at: " + timestamp());
+    sleep(2000);
+    print("Long task completed at: " + timestamp() + " (should be ~2 seconds later)");
+}
+
+parallel {
+    print("Short task starting at: " + timestamp());
+    sleep(500);
+    print("Short task completed at: " + timestamp() + " (should be ~0.5 seconds later)");
+}
+
+end = timestamp();
+print("All tasks completed by: " + end);
+print("Total execution time: " + (end - start) + " seconds (should be ~2 seconds if parallel)"); 

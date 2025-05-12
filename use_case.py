@@ -1,5 +1,9 @@
 import sys
 import re
+import readline
+import os
+import threading
+import time
 
 #############################
 # Lexer Implementation
@@ -35,6 +39,15 @@ class Lexer:
             
     def skip_whitespace(self):
         while self.current_char is not None and self.current_char.isspace():
+            self.advance()
+            
+    def skip_comment(self):
+        # Skip the first '/'
+        self.advance()
+        # Skip the second '/'
+        self.advance()
+        # Skip until end of line or end of file
+        while self.current_char is not None and self.current_char != '\n':
             self.advance()
             
     def peek(self):
@@ -80,6 +93,11 @@ class Lexer:
                 self.skip_whitespace()
                 continue
                 
+            # Handle single-line comments
+            if self.current_char == '/' and self.peek() == '/':
+                self.skip_comment()
+                continue
+                
             if self.current_char in ('\"', "'"):
                 return Token('STRING', self.get_string(), self.lineno)
                 
@@ -97,12 +115,21 @@ class Lexer:
                     'while': 'WHILE',
                     'for': 'FOR',
                     'print': 'PRINT',
+                    'input': 'INPUT',
+                    'parseInt': 'PARSEINT',
+                    'parallel': 'PARALLEL',
+                    'repeat': 'REPEAT',
+                    'times': 'TIMES',
                     'and': 'AND',
                     'or': 'OR',
                     'not': 'NOT',
                     'struct': 'STRUCT',
                     'true': 'BOOLEAN',
-                    'false': 'BOOLEAN'
+                    'false': 'BOOLEAN',
+                    'class': 'CLASS',
+                    'new': 'NEW',
+                    'let': 'LET',
+                    'const': 'CONST'
                 }
                 if identifier in reserved:
                     if identifier in ('true', 'false'):
@@ -130,6 +157,18 @@ class Lexer:
                 self.advance()
                 self.advance()
                 return Token('LE', '<=', self.lineno)
+                
+            # Handle arrow function
+            if self.current_char == '-' and self.peek() == '>':
+                self.advance()
+                self.advance()
+                return Token('ARROW', '=>', self.lineno)
+                
+            # Also handle alternative arrow syntax (=>)
+            if self.current_char == '=' and self.peek() == '>':
+                self.advance()
+                self.advance()
+                return Token('ARROW', '=>', self.lineno)
                 
             # Single-character tokens
             if self.current_char == '+':
@@ -167,6 +206,14 @@ class Lexer:
             if self.current_char == '}':
                 self.advance()
                 return Token('RBRACE', '}', self.lineno)
+                
+            if self.current_char == '[':
+                self.advance()
+                return Token('LBRACKET', '[', self.lineno)
+                
+            if self.current_char == ']':
+                self.advance()
+                return Token('RBRACKET', ']', self.lineno)
                 
             if self.current_char == ',':
                 self.advance()
@@ -234,7 +281,7 @@ class Parser:
         """statement : simple_statement SEMICOLON
                      | compound_statement SEMICOLON
                      | compound_statement"""
-        if self.current_token.type in ('DEF', 'IF', 'WHILE', 'FOR', 'STRUCT'):
+        if self.current_token.type in ('DEF', 'IF', 'WHILE', 'FOR', 'STRUCT', 'CLASS', 'PARALLEL'):
             stmt = self.compound_statement()
             if self.current_token.type == 'SEMICOLON':
                 self.eat('SEMICOLON')
@@ -245,18 +292,51 @@ class Parser:
             return stmt
             
     def simple_statement(self):
-        """simple_statement : declaration
+        """simple_statement : let_declaration
+                           | const_declaration
                            | assignment
                            | print_statement
                            | return_statement
                            | expression"""
-        # Check for declaration (type ID)
-        if self.current_token.type == 'ID' and self.peek().type == 'ID':
-            return self.declaration()
+        if self.current_token.type == 'LET':
+            return self.let_declaration()
+        elif self.current_token.type == 'CONST':
+            return self.const_declaration()
+        elif self.current_token.type == 'ID':
+            # Check for assignment
+            if self.peek().type == 'EQUALS':
+                return self.assignment()
+            # Check for array assignment
+            elif self.peek().type == 'LBRACKET':
+                # Save state
+                saved_pos = self.lexer.pos
+                saved_lineno = self.lexer.lineno
+                saved_current_char = self.lexer.current_char
+                saved_token = self.current_token
                 
-        if self.current_token.type == 'ID' and self.peek().type == 'EQUALS':
-            return self.assignment()
-        elif self.current_token.type == 'PRINT':
+                try:
+                    var_name = self.current_token.value
+                    self.eat('ID')
+                    self.eat('LBRACKET')
+                    self.expression()  # We don't need to capture the index yet
+                    self.eat('RBRACKET')
+                    if self.current_token.type == 'EQUALS':
+                        # It's an array assignment, restore state and use assignment method
+                        self.lexer.pos = saved_pos
+                        self.lexer.lineno = saved_lineno
+                        self.lexer.current_char = saved_current_char
+                        self.current_token = saved_token
+                        return self.assignment()
+                except:
+                    pass
+                
+                # Restore state for other expressions
+                self.lexer.pos = saved_pos
+                self.lexer.lineno = saved_lineno
+                self.lexer.current_char = saved_current_char
+                self.current_token = saved_token
+            
+        if self.current_token.type == 'PRINT':
             return self.print_statement()
         elif self.current_token.type == 'RETURN':
             return self.return_statement()
@@ -286,7 +366,10 @@ class Parser:
                              | if_statement
                              | while_loop
                              | for_loop
-                             | struct_def"""
+                             | struct_def
+                             | class_def
+                             | parallel_block
+                             | repeat_loop"""
         token = self.current_token
         if token.type == 'DEF':
             return self.function_def()
@@ -298,6 +381,12 @@ class Parser:
             return self.for_loop()
         elif token.type == 'STRUCT':
             return self.struct_def()
+        elif token.type == 'CLASS':
+            return self.class_def()
+        elif token.type == 'PARALLEL':
+            return self.parallel_block()
+        elif token.type == 'REPEAT':
+            return self.repeat_loop()
         else:
             self.error(f"Unexpected token {token.type} in compound statement")
             
@@ -308,22 +397,34 @@ class Parser:
         return ('return', expr)
         
     def assignment(self):
-        """assignment : ID EQUALS expression"""
+        """assignment : ID EQUALS expression
+                      | ID LBRACKET expression RBRACKET EQUALS expression"""
         var_name = self.current_token.value
         self.eat('ID')
-        self.eat('EQUALS')
-        expr = self.expression()
-        return ('assign', var_name, expr)
+        
+        # Array element assignment: array[index] = expr
+        if self.current_token.type == 'LBRACKET':
+            self.eat('LBRACKET')
+            index = self.expression()
+            self.eat('RBRACKET')
+            self.eat('EQUALS')
+            expr = self.expression()
+            return ('array_assign', var_name, index, expr)
+        # Regular assignment
+        else:
+            self.eat('EQUALS')
+            expr = self.expression()
+            return ('assign', var_name, expr)
         
     def declaration(self):
-        """declaration : ID ID EQUALS expression"""
-        type_name = self.current_token.value
-        self.eat('ID')
+        """declaration : (LET | CONST) ID EQUALS expression"""
+        is_const = self.current_token.type == 'CONST'
+        self.eat(self.current_token.type)  # eat LET or CONST
         var_name = self.current_token.value
         self.eat('ID')
         self.eat('EQUALS')
         expr = self.expression()
-        return ('declare', type_name, var_name, expr)
+        return ('declare', var_name, expr, is_const)
         
     def function_def(self):
         """function_def : DEF ID LPAREN param_list RPAREN LBRACE statement_list RBRACE"""
@@ -414,6 +515,26 @@ class Parser:
         expr = self.expression()
         self.eat('RPAREN')
         return ('print', expr)
+        
+    def input_statement(self):
+        """input_statement : INPUT LPAREN (expression)? RPAREN"""
+        self.eat('INPUT')
+        self.eat('LPAREN')
+        
+        prompt = None
+        if self.current_token.type != 'RPAREN':
+            prompt = self.expression()
+            
+        self.eat('RPAREN')
+        return ('input', prompt)
+        
+    def parseint_statement(self):
+        """parseint_statement : PARSEINT LPAREN expression RPAREN"""
+        self.eat('PARSEINT')
+        self.eat('LPAREN')
+        expr = self.expression()
+        self.eat('RPAREN')
+        return ('parseint', expr)
         
     def struct_def(self):
         """struct_def : STRUCT ID LBRACE field_list RBRACE"""
@@ -527,13 +648,97 @@ class Parser:
         """primary_expression : NUMBER
                              | BOOLEAN
                              | STRING
+                             | array_literal
                              | ID
                              | ID LPAREN arg_list RPAREN
+                             | ID LBRACKET expression RBRACKET
+                             | INPUT LPAREN (expression)? RPAREN
+                             | PARSEINT LPAREN expression RPAREN
                              | LPAREN expression RPAREN
-                             | primary_expression DOT ID"""
+                             | primary_expression DOT ID
+                             | primary_expression DOT ID LPAREN arg_list RPAREN
+                             | NEW ID LPAREN arg_list RPAREN
+                             | arrow_function"""
         token = self.current_token
-        
-        if token.type == 'NUMBER':
+
+        # Input expression
+        if token.type == 'INPUT':
+            return self.input_statement()
+            
+        # ParseInt expression
+        if token.type == 'PARSEINT':
+            return self.parseint_statement()
+            
+        # Array literal: [1, 2, 3]
+        if token.type == 'LBRACKET':
+            return self.array_literal()
+        # Arrow function: (x, y) => ...
+        elif token.type == 'LPAREN':
+            # Save state
+            saved_pos = self.lexer.pos
+            saved_lineno = self.lexer.lineno
+            saved_current_char = self.lexer.current_char
+            saved_token = self.current_token
+
+            self.eat('LPAREN')
+            params = []
+            while self.current_token.type == 'ID':
+                params.append(self.current_token.value)
+                self.eat('ID')
+                if self.current_token.type == 'COMMA':
+                    self.eat('COMMA')
+            if self.current_token.type == 'RPAREN':
+                self.eat('RPAREN')
+                if self.current_token.type == 'ARROW':
+                    self.eat('ARROW')
+                    body = self.expression()
+                    return ('arrow_func', params, body)
+            # Not an arrow function, restore state
+            self.lexer.pos = saved_pos
+            self.lexer.lineno = saved_lineno
+            self.lexer.current_char = saved_current_char
+            self.current_token = saved_token
+            self.eat('LPAREN')
+            node = self.expression()
+            self.eat('RPAREN')
+            return node
+        # Arrow function: x => ...
+        elif token.type == 'ID':
+            id_name = token.value
+            self.eat('ID')
+            if self.current_token.type == 'ARROW':
+                self.eat('ARROW')
+                body = self.expression()
+                return ('arrow_func', [id_name], body)
+            # Check for function call
+            if self.current_token.type == 'LPAREN':
+                self.eat('LPAREN')
+                args = self.arg_list()
+                self.eat('RPAREN')
+                return ('func_call', id_name, args)
+            # Check for array access
+            elif self.current_token.type == 'LBRACKET':
+                self.eat('LBRACKET')
+                index = self.expression()
+                self.eat('RBRACKET')
+                return ('array_access', ('var', id_name), index)
+            # Check for field access
+            elif self.current_token.type == 'DOT':
+                self.eat('DOT')
+                field = self.current_token.value
+                self.eat('ID')
+                
+                # Check for method call
+                if self.current_token.type == 'LPAREN':
+                    self.eat('LPAREN')
+                    args = self.arg_list()
+                    self.eat('RPAREN')
+                    return ('method_call', ('var', id_name), field, args)
+                else:
+                    return ('field_access', ('var', id_name), field)
+            else:
+                return ('var', id_name)
+        elif token.type == 'NUMBER':
             self.eat('NUMBER')
             return ('number', token.value)
         elif token.type == 'BOOLEAN':
@@ -542,30 +747,14 @@ class Parser:
         elif token.type == 'STRING':
             self.eat('STRING')
             return ('string', token.value)
-        elif token.type == 'LPAREN':
-            self.eat('LPAREN')
-            node = self.expression()
-            self.eat('RPAREN')
-            return node
-        elif token.type == 'ID':
-            # Could be variable, function call, or field access
-            id_name = token.value
+        elif token.type == 'NEW':
+            self.eat('NEW')
+            class_name = self.current_token.value
             self.eat('ID')
-            
-            # Check for function call
-            if self.current_token.type == 'LPAREN':
-                self.eat('LPAREN')
-                args = self.arg_list()
-                self.eat('RPAREN')
-                return ('func_call', id_name, args)
-            # Check for field access
-            elif self.current_token.type == 'DOT':
-                self.eat('DOT')
-                field = self.current_token.value
-                self.eat('ID')
-                return ('field_access', ('var', id_name), field)
-            else:
-                return ('var', id_name)
+            self.eat('LPAREN')
+            args = self.arg_list()
+            self.eat('RPAREN')
+            return ('new', class_name, args)
         else:
             self.error(f"Unexpected token {token.type} in expression")
             
@@ -584,6 +773,118 @@ class Parser:
             args.append(self.expression())
             
         return args
+        
+    def class_def(self):
+        """class_def : CLASS ID LBRACE method_list RBRACE"""
+        self.eat('CLASS')
+        class_name = self.current_token.value
+        self.eat('ID')
+        self.eat('LBRACE')
+        methods = self.method_list()
+        self.eat('RBRACE')
+        
+        # Store class in function table with special prefix
+        self.function_table[f"__class_{class_name}"] = ('class_def', class_name, methods)
+        return ('class_def', class_name, methods)
+        
+    def method_list(self):
+        """method_list : method_list method
+                      | method
+                      | empty"""
+        methods = []
+        while self.current_token.type == 'DEF':
+            methods.append(self.method())
+        return methods
+        
+    def method(self):
+        """method : DEF ID LPAREN param_list RPAREN LBRACE statement_list RBRACE"""
+        self.eat('DEF')
+        method_name = self.current_token.value
+        self.eat('ID')
+        self.eat('LPAREN')
+        params = self.param_list()
+        self.eat('RPAREN')
+        self.eat('LBRACE')
+        statements = self.statement_list()
+        self.eat('RBRACE')
+        return ('method', method_name, params, statements)
+        
+    def let_declaration(self):
+        """let_declaration : LET ID EQUALS expression"""
+        self.eat('LET')
+        var_name = self.current_token.value
+        self.eat('ID')
+        self.eat('EQUALS')
+        expr = self.expression()
+        return ('declare', var_name, expr, False)
+
+    def const_declaration(self):
+        """const_declaration : CONST ID EQUALS expression"""
+        self.eat('CONST')
+        var_name = self.current_token.value
+        self.eat('ID')
+        self.eat('EQUALS')
+        expr = self.expression()
+        return ('declare', var_name, expr, True)
+
+    def arrow_function(self):
+        """arrow_function : LPAREN param_list RPAREN ARROW expression"""
+        self.eat('LPAREN')
+        params = []
+        while self.current_token.type == 'ID':
+            params.append(self.current_token.value)
+            self.eat('ID')
+            if self.current_token.type == 'COMMA':
+                self.eat('COMMA')
+        self.eat('RPAREN')
+        self.eat('ARROW')
+        body = self.expression()
+        return ('arrow_func', params, body)
+        
+    def array_literal(self):
+        """array_literal : LBRACKET (expression (COMMA expression)*)? RBRACKET"""
+        self.eat('LBRACKET')
+        elements = []
+        
+        # Empty array
+        if self.current_token.type == 'RBRACKET':
+            self.eat('RBRACKET')
+            return ('array', elements)
+            
+        # Non-empty array
+        elements.append(self.expression())
+        
+        while self.current_token.type == 'COMMA':
+            self.eat('COMMA')
+            elements.append(self.expression())
+            
+        self.eat('RBRACKET')
+        return ('array', elements)
+        
+    def parallel_block(self):
+        """parallel_block : PARALLEL LBRACE statement_list RBRACE"""
+        self.eat('PARALLEL')
+        self.eat('LBRACE')
+        statements = self.statement_list()
+        self.eat('RBRACE')
+        return ('parallel', statements)
+        
+    def repeat_loop(self):
+        """repeat_loop : REPEAT expression TIMES LBRACE statement_list RBRACE"""
+        self.eat('REPEAT')
+        
+        # Parse the expression for the number of times to repeat
+        count_expr = self.expression()
+        
+        # Parse the "times" keyword
+        self.eat('TIMES')
+        
+        # Parse the block of code to repeat
+        self.eat('LBRACE')
+        statements = self.statement_list()
+        self.eat('RBRACE')
+        
+        return ('repeat', count_expr, statements)
         
     def parse(self):
         return self.program()
@@ -625,17 +926,73 @@ class Interpreter:
             elif ntype == 'assign':
                 var = node[1]
                 val = self.evaluate(node[2], local_symbols)
+                # Check if variable is const
+                if var in self.symbol_table and isinstance(self.symbol_table[var], tuple) and self.symbol_table[var][1]:
+                    raise Exception(f"Cannot reassign constant variable '{var}'")
                 local_symbols[var] = val
                 self.symbol_table[var] = val
-                if self.debug:
-                    self.debug_print(f"Assigned {var} = {val}")
                 return val
-            elif ntype == 'declare':
-                val = self.evaluate(node[3], local_symbols)
-                local_symbols[node[2]] = val
-                self.symbol_table[node[2]] = val
+            elif ntype == 'array_assign':
+                array_name = node[1]
+                index = self.evaluate(node[2], local_symbols)
+                value = self.evaluate(node[3], local_symbols)
+                
                 if self.debug:
-                    self.debug_print(f"Declared {node[2]} = {val}")
+                    self.debug_print(f"Array assign: {array_name}[{index}] = {value}")
+                    self.debug_print(f"Local symbols: {local_symbols.keys()}")
+                    self.debug_print(f"Symbol table: {self.symbol_table.keys()}")
+                
+                # Get the array
+                if array_name in local_symbols:
+                    array = local_symbols[array_name]
+                    if self.debug:
+                        self.debug_print(f"Found in local_symbols: {array}")
+                elif array_name in self.symbol_table:
+                    array = self.symbol_table[array_name]
+                    if self.debug:
+                        self.debug_print(f"Found in symbol_table: {array}")
+                else:
+                    raise Exception(f"Undefined variable: {array_name}")
+                
+                # Check if array is a tuple (const declaration)
+                if isinstance(array, tuple):
+                    if array[1]:  # Check if const
+                        raise Exception(f"Cannot modify constant array '{array_name}'")
+                    array = array[0]  # Extract the actual array
+                
+                if not isinstance(array, list):
+                    raise Exception(f"Variable '{array_name}' is not an array")
+                if not isinstance(index, int):
+                    raise Exception("Array index must be an integer")
+                if index < 0 or index >= len(array):
+                    raise Exception(f"Array index {index} out of bounds (0-{len(array)-1})")
+                
+                # Update array element
+                array[index] = value
+                
+                # Update the array in the symbol tables
+                if array_name in local_symbols:
+                    if isinstance(local_symbols[array_name], tuple):
+                        local_symbols[array_name] = (array, local_symbols[array_name][1])
+                    else:
+                        local_symbols[array_name] = array
+                if array_name in self.symbol_table:
+                    if isinstance(self.symbol_table[array_name], tuple):
+                        self.symbol_table[array_name] = (array, self.symbol_table[array_name][1])
+                    else:
+                        self.symbol_table[array_name] = array
+                
+                return value
+            elif ntype == 'declare':
+                var_name = node[1]
+                is_const = node[3]
+                # Check if variable is already declared
+                if var_name in local_symbols or var_name in self.symbol_table:
+                    raise Exception(f"Redeclaration error: Variable '{var_name}' has already been declared")
+                val = self.evaluate(node[2], local_symbols)
+                # Store value with const flag
+                local_symbols[var_name] = (val, is_const)
+                self.symbol_table[var_name] = val  # Store just the value in the symbol table
                 return val
             elif ntype == 'number':
                 return node[1]
@@ -646,16 +1003,28 @@ class Interpreter:
             elif ntype == 'var':
                 var = node[1]
                 if var in local_symbols:
-                    return local_symbols[var]
+                    val = local_symbols[var]
+                    # Handle tuple case for const variables
+                    if isinstance(val, tuple):
+                        return val[0]
+                    return val
                 elif var in self.symbol_table:
-                    return self.symbol_table[var]
+                    val = self.symbol_table[var]
+                    # Handle tuple case for const variables
+                    if isinstance(val, tuple):
+                        return val[0]
+                    return val
                 else:
                     raise Exception(f"Undefined variable: {var}")
-            elif ntype in ('+', '-', '*', '/', '==', '!=', '>', '<', '>=', '<='):
+            elif ntype in ('+', '-', '*', '/', '==', '!=', '>', '<', '>=', '<=', 'and', 'or'):
                 left = self.evaluate(node[1], local_symbols)
                 right = self.evaluate(node[2], local_symbols)
                 if ntype == '+':
-                    return left + right
+                    # Handle string concatenation with automatic conversion
+                    if isinstance(left, str) or isinstance(right, str):
+                        return str(left) + str(right)
+                    else:
+                        return left + right
                 elif ntype == '-':
                     return left - right
                 elif ntype == '*':
@@ -674,12 +1043,66 @@ class Interpreter:
                     return left >= right
                 elif ntype == '<=':
                     return left <= right
-            elif ntype == 'and':
-                return self.evaluate(node[1], local_symbols) and self.evaluate(node[2], local_symbols)
-            elif ntype == 'or':
-                return self.evaluate(node[1], local_symbols) or self.evaluate(node[2], local_symbols)
+                elif ntype == 'and':
+                    return left and right
+                elif ntype == 'or':
+                    return left or right
             elif ntype == 'not':
                 return not self.evaluate(node[1], local_symbols)
+            elif ntype == 'class_def':
+                return None
+            elif ntype == 'new':
+                class_name = node[1]
+                args = [self.evaluate(arg, local_symbols) for arg in node[2]]
+                
+                class_key = f"__class_{class_name}"
+                if class_key not in self.function_table:
+                    raise Exception(f"Undefined class: {class_name}")
+                    
+                class_def = self.function_table[class_key]
+                methods = class_def[2]
+                
+                # Create instance with methods
+                instance = {'__class__': class_name}
+                for method in methods:
+                    method_name = method[1]
+                    method_params = method[2]
+                    method_body = method[3]
+                    
+                    def create_method(method_name, method_params, method_body):
+                        def method_func(*args):
+                            if len(args) != len(method_params):
+                                raise Exception(f"Method {method_name} expected {len(method_params)} arguments, got {len(args)}")
+                            method_env = dict(zip(method_params, args))
+                            method_env['this'] = instance
+                            method_env.update(local_symbols)
+                            try:
+                                result = None
+                                for stmt in method_body:
+                                    result = self.evaluate(stmt, method_env)
+                                return result
+                            except ReturnValue as rv:
+                                return rv.value
+                        return method_func
+                    
+                    instance[method_name] = create_method(method_name, method_params, method_body)
+                
+                return instance
+            elif ntype == 'method_call':
+                obj = self.evaluate(node[1], local_symbols)
+                method_name = node[2]
+                args = [self.evaluate(arg, local_symbols) for arg in node[3]]
+                
+                if not isinstance(obj, dict) or method_name not in obj:
+                    raise Exception(f"Method '{method_name}' not found in object")
+                    
+                method = obj[method_name]
+                if not callable(method):
+                    raise Exception(f"'{method_name}' is not a method")
+                    
+                return method(*args)
+            elif ntype == 'func_def':
+                return None
             elif ntype == 'if':
                 cond = self.evaluate(node[1], local_symbols)
                 if cond:
@@ -725,33 +1148,25 @@ class Interpreter:
                 val = self.evaluate(node[1], local_symbols)
                 print(val)
                 return val
-            elif ntype == 'func_def':
-                return None
-            elif ntype == 'func_call':
-                func_name = node[1]
-                args = [self.evaluate(arg, local_symbols) for arg in node[2]]
-                
-                if func_name in self.struct_table:
-                    fields = self.struct_table[func_name]
-                    if len(args) != len(fields):
-                        raise Exception(f"Incorrect number of arguments for struct {func_name}")
-                    return {'__struct__': func_name, **dict(zip(fields, args))}
-                elif func_name in self.function_table:
-                    func_def = self.function_table[func_name]
-                    param_list = func_def[2]
-                    stmts = func_def[3]
-                    if len(args) != len(param_list):
-                        raise Exception(f"Incorrect number of arguments for function '{func_name}'")
-                    local_env = dict(zip(param_list, args))
-                    try:
-                        result = None
-                        for stmt in stmts:
-                            result = self.evaluate(stmt, local_env)
-                    except ReturnValue as rv:
-                        return rv.value
-                    return result
-                else:
-                    raise Exception(f"Undefined function: {func_name}")
+            elif ntype == 'input':
+                # If there's a prompt, evaluate and print it without a newline
+                if node[1] is not None:
+                    prompt = self.evaluate(node[1], local_symbols)
+                    # Print without newline
+                    print(prompt, end='', flush=True)
+                    
+                # Get user input
+                try:
+                    user_input = input()
+                    return user_input
+                except EOFError:
+                    return ""
+            elif ntype == 'parseint':
+                val = self.evaluate(node[1], local_symbols)
+                try:
+                    return int(val)
+                except ValueError:
+                    raise Exception(f"Cannot convert '{val}' to an integer")
             elif ntype == 'return':
                 val = self.evaluate(node[1], local_symbols)
                 raise ReturnValue(val)
@@ -760,10 +1175,158 @@ class Interpreter:
             elif ntype == 'field_access':
                 obj = self.evaluate(node[1], local_symbols)
                 field = node[2]
-                if isinstance(obj, dict) and field in obj:
-                    return obj[field]
+                
+                if isinstance(obj, dict):
+                    if field in obj:
+                        if isinstance(obj[field], tuple) and obj[field][0] == 'method':
+                            # Method call
+                            method_params = obj[field][1]
+                            method_body = obj[field][2]
+                            local_env = {'self': obj}  # Add self reference
+                            try:
+                                result = None
+                                for stmt in method_body:
+                                    result = self.evaluate(stmt, local_env)
+                                return result
+                            except ReturnValue as rv:
+                                return rv.value
+                        return obj[field]
+                    elif '__class__' in obj:
+                        raise Exception(f"Method '{field}' not found in class {obj['__class__']}")
+                    else:
+                        raise Exception(f"Field '{field}' not found in object")
                 else:
-                    raise Exception(f"Field '{field}' not found in object")
+                    raise Exception(f"Field access on non-object type")
+            elif ntype == 'arrow_func':
+                params = node[1]
+                body = node[2]
+                
+                # Create a closure function
+                def arrow_function(*args):
+                    if len(args) != len(params):
+                        raise Exception(f"Arrow function expected {len(params)} arguments, got {len(args)}")
+                    
+                    # Create a new environment for the function execution
+                    func_env = dict(zip(params, args))
+                    # Include the outer scope in the closure
+                    func_env.update(local_symbols)
+                    
+                    # Evaluate the body with this environment
+                    return self.evaluate(body, func_env)
+                
+                return arrow_function
+            elif ntype == 'array':
+                elements = [self.evaluate(elem, local_symbols) for elem in node[1]]
+                return elements
+            elif ntype == 'array_access':
+                array = self.evaluate(node[1], local_symbols)
+                index = self.evaluate(node[2], local_symbols)
+                
+                if not isinstance(array, list):
+                    raise Exception("Cannot access index on non-array type")
+                if not isinstance(index, int):
+                    raise Exception("Array index must be an integer")
+                if index < 0 or index >= len(array):
+                    raise Exception(f"Array index {index} out of bounds (0-{len(array)-1})")
+                    
+                return array[index]
+            elif ntype == 'func_call':
+                # Get the function name
+                func_name = node[1]
+                # Evaluate the arguments
+                args = [self.evaluate(arg, local_symbols) for arg in node[2]]
+                
+                # Check if it's a method on an object
+                if func_name in local_symbols and callable(local_symbols[func_name]):
+                    return local_symbols[func_name](*args)
+                elif func_name in self.symbol_table and callable(self.symbol_table[func_name]):
+                    return self.symbol_table[func_name](*args)
+                elif func_name == 'sleep':
+                    # Built-in sleep function for demonstration
+                    if len(args) != 1:
+                        raise Exception("sleep() expects 1 argument (milliseconds)")
+                    if not isinstance(args[0], (int, float)):
+                        raise Exception("sleep() argument must be a number")
+                    # Convert milliseconds to seconds for time.sleep
+                    time.sleep(args[0] / 1000)
+                    return None
+                elif func_name == 'timestamp':
+                    # Built-in timestamp function that returns current time in seconds
+                    return time.time()
+                elif f"__class_{func_name}" in self.function_table:
+                    # It's a class constructor call
+                    class_def = self.function_table[f"__class_{func_name}"]
+                    raise Exception("Class constructor must be called with 'new' keyword")
+                elif func_name in self.struct_table:
+                    # It's a struct constructor call
+                    fields = self.struct_table[func_name]
+                    if len(args) != len(fields):
+                        raise Exception(f"Struct {func_name} expects {len(fields)} fields, got {len(args)}")
+                    
+                    # Create a new struct instance (a dictionary with field names as keys)
+                    instance = {}
+                    for i, field in enumerate(fields):
+                        instance[field] = args[i]
+                    return instance
+                else:
+                    raise Exception(f"Function '{func_name}' is not defined")
+            elif ntype == 'parallel':
+                # Create a separate thread to execute the block
+                block_results = []
+                
+                # Function to run statements in a thread
+                def execute_block():
+                    try:
+                        # Create a copy of the local symbols
+                        thread_locals = local_symbols.copy() if local_symbols else {}
+                        
+                        # Execute each statement in the block
+                        result = None
+                        for stmt in node[1]:
+                            result = self.evaluate(stmt, thread_locals)
+                        
+                        # Store the last result
+                        block_results.append(result)
+                        
+                        # Update main thread's symbol table
+                        for key, value in thread_locals.items():
+                            if key in self.symbol_table:
+                                self.symbol_table[key] = value
+                    except Exception as e:
+                        print(f"Error in parallel execution: {e}")
+                
+                # Create and start thread
+                thread = threading.Thread(target=execute_block)
+                thread.start()
+                
+                # Don't wait for thread to complete
+                # This is what makes execution parallel
+                # The thread continues in the background
+                
+                # Return None immediately
+                return None
+            elif ntype == 'repeat':
+                # Evaluate the count expression
+                count = self.evaluate(node[1], local_symbols)
+                
+                # Check if count is a number
+                if not isinstance(count, int):
+                    raise Exception("Repeat count must be an integer")
+                
+                # Check if count is non-negative
+                if count < 0:
+                    raise Exception("Repeat count cannot be negative")
+                
+                # Execute the statements multiple times
+                result = None
+                for _ in range(count):
+                    try:
+                        for stmt in node[2]:
+                            result = self.evaluate(stmt, local_symbols)
+                    except ReturnValue as rv:
+                        return rv.value
+                
+                return result
             else:
                 raise Exception(f"Unknown node type: {ntype}")
         else:
@@ -846,36 +1409,42 @@ def main():
     else:
         # Start REPL if no arguments
         print("Enter your code (type 'exit' to quit):")
+        print("Use Up/Down arrows for command history, Left/Right for cursor movement")
+
+        # Set up readline for command history
+        histfile = os.path.join(os.path.expanduser("~"), ".chan_history")
+        try:
+            readline.read_history_file(histfile)
+            # Set history file size
+            readline.set_history_length(1000)
+        except FileNotFoundError:
+            pass
 
         # Persistent symbol/function/struct tables
         symbol_table = {}
         function_table = {}
         struct_table = {}
-        parser = None
-        interpreter = None
 
         while True:
             try:
                 text = input('>>> ')
                 if text.strip().lower() == 'exit':
+                    # Save history before exiting
+                    readline.write_history_file(histfile)
                     break
                 if not text.strip():
                     continue
 
                 lexer = Lexer(text)
-                if parser is None:
-                    parser = Parser(lexer)
-                    # Attach persistent tables
-                    parser.symbol_table = symbol_table
-                    parser.function_table = function_table
-                    parser.struct_table = struct_table
-                    interpreter = Interpreter(parser)
-                    interpreter.symbol_table = symbol_table
-                    interpreter.function_table = function_table
-                    interpreter.struct_table = struct_table
-                else:
-                    parser.lexer = lexer
-                    parser.current_token = lexer.get_next_token()
+                # Always create a new parser and interpreter for each input
+                parser = Parser(lexer)
+                parser.symbol_table = symbol_table
+                parser.function_table = function_table
+                parser.struct_table = struct_table
+                interpreter = Interpreter(parser)
+                interpreter.symbol_table = symbol_table
+                interpreter.function_table = function_table
+                interpreter.struct_table = struct_table
 
                 try:
                     result = parser.parse()
@@ -887,9 +1456,13 @@ def main():
 
             except KeyboardInterrupt:
                 print("\nExiting...")
+                # Save history before exiting
+                readline.write_history_file(histfile)
                 break
             except EOFError:
                 print("\nExiting...")
+                # Save history before exiting
+                readline.write_history_file(histfile)
                 break
 
 if __name__ == '__main__':

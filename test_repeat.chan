@@ -1,0 +1,10 @@
+// Simple test of repeat loop
+print("Basic repeat test:");
+
+// Simple repeat loop
+repeat 3 times {
+    print("Hello from repeat loop!");
+}
+
+// Done
+print("Test completed."); 

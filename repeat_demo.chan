@@ -1,0 +1,39 @@
+// Demonstrating the repeat loop feature
+
+// Basic example
+print("Basic repeat loop demo:");
+repeat 3 times {
+    print("Hello, world!");
+}
+
+print("");
+
+// With counter variable
+print("Using counter variable:");
+let counter = 0;
+repeat 5 times {
+    counter = counter + 1;
+    print("Counter: " + counter);
+}
+
+print("");
+
+// Using repeat with expressions
+print("Using expressions to determine repetition count:");
+let count = 2;
+repeat count + 1 times {
+    print("This repeats based on an expression");
+}
+
+print("");
+
+// Nested repeat loops
+print("Nested repeat loops:");
+repeat 3 times {
+    let message = "Outer loop";
+    print(message);
+    
+    repeat 2 times {
+        print("  Inner loop");
+    }
+} 

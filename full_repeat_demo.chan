@@ -1,0 +1,39 @@
+// Comprehensive repeat loop demo for simplified Chan interpreter
+
+// Basic repeat loop
+print("Basic repeat loop:");
+repeat 3 times {
+    print("Hello, world!");
+}
+
+// Using variables with repeat
+let iterations = 4;
+print("Repeat with variable:");
+repeat iterations times {
+    print("Iteration using variable");
+}
+
+// Using expressions with repeat
+print("Repeat with expression:");
+repeat iterations + 1 times {
+    print("Iteration using expression");
+}
+
+// Nested repeat loops
+print("Nested repeat loops:");
+repeat 2 times {
+    print("Outer loop");
+    repeat 3 times {
+        print("  Inner loop");
+    }
+}
+
+// Variable manipulation in repeat loops
+print("Variable manipulation:");
+let counter = 0;
+repeat 5 times {
+    counter = counter + 1;
+    print("Counter: " + counter);
+}
+
+print("Repeat loop demo completed!"); 

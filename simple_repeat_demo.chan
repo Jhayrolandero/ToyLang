@@ -1,0 +1,6 @@
+// Simple Chan program with repeat loop
+print("Hello");
+repeat 3 times {
+    print("Hi");
+}
+print("Done"); 

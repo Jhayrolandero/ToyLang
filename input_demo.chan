@@ -1,0 +1,30 @@
+// Demonstrate Python-like input() with prompts
+// This mimics Python's input() behavior where the prompt is shown and input is read
+
+// Basic example
+let name = input("What is your name? ");
+print("Nice to meet you, " + name + "!");
+
+// Using input for calculations
+let num1 = parseInt(input("Enter first number: "));
+let num2 = parseInt(input("Enter second number: "));
+print("Sum: " + (num1 + num2));
+print("Product: " + (num1 * num2));
+
+// Using input with conditionals
+let age = parseInt(input("Enter your age: "));
+if (age >= 18) {
+    print("You are an adult.");
+} else {
+    print("You are a minor.");
+}
+
+// Using input with arrays
+let favoriteColors = [];
+let color1 = input("Enter your first favorite color: ");
+let color2 = input("Enter your second favorite color: ");
+let color3 = input("Enter your third favorite color: ");
+
+favoriteColors = [color1, color2, color3];
+print("Your favorite colors are: " + favoriteColors);
+print("Your top favorite color is: " + favoriteColors[0]); 

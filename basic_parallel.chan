@@ -1,0 +1,35 @@
+// Basic parallel example with direct code
+
+print("Sequential execution:");
+let start = timestamp();
+
+// Sequential code
+print("Sequential task 1 starting");
+sleep(2000); // Sleep for 2 seconds
+print("Sequential task 1 completed");
+
+print("Sequential task 2 starting");
+sleep(1000); // Sleep for 1 second
+print("Sequential task 2 completed");
+
+let end = timestamp();
+print("Sequential execution took: " + (end - start) + " seconds");
+
+// Parallel execution
+print("\nParallel execution:");
+start = timestamp();
+
+parallel {
+    print("Parallel task 1 starting");
+    sleep(2000); // Sleep for 2 seconds
+    print("Parallel task 1 completed");
+}
+
+parallel {
+    print("Parallel task 2 starting");
+    sleep(1000); // Sleep for 1 second
+    print("Parallel task 2 completed");
+}
+
+end = timestamp();
+print("Parallel execution took: " + (end - start) + " seconds"); 

@@ -1,13 +1,13 @@
-number x = 5;
-number y = 10;
+let x = 5;
+const y = 10;
 
-number sum = x + y;
+let sum = x + y;
 print(sum);
 
-string greeting = "Hello, Chan!";
+let greeting = "Hello, Chan!";
 print(greeting);
 
-boolean is_greater = x > y;
+let is_greater = x > y;
 print(is_greater);
 
 if (x < y) {
@@ -16,23 +16,100 @@ if (x < y) {
     print("x is greater than or equal to y");
 }
 
-number counter = 0;
+let counter = 0;
 while (counter < 3) {
     print(counter);
     counter = counter + 1;
 }
 
-def add(a, b) {
-    return a + b;
-}
-
-number result = add(x, y);
-print(result);
-
 struct Point {
     x, y
 }
 
-Point p = Point(5, 10);
+const p = Point(5, 10);
 print(p.x);
-print(p.y); 
+print(p.y);
+
+
+class Person {
+    def greet() {
+        print("Hello");
+    }
+}
+let person1 = new Person();
+person1.greet();
+
+// Arrow function example
+let add = (x, y) => x + y;
+print(add(2, 3));
+
+// More complex arrow function examples
+let multiply = (x, y) => x * y;
+print(multiply(4, 5));
+
+// Arrow function with a single parameter
+let square = x => x * x;
+print(square(7));
+
+// Array examples
+let numbers = [1, 2, 3, 4, 5];
+print(numbers);
+print(numbers[2]); // Should print 3 (zero-indexed)
+
+// Array operations
+numbers[0] = 10;
+print(numbers);
+
+// Array with mixed types
+let mixed = [1, "hello", true];
+print(mixed);
+
+// Get user input with prompt directly in input()
+let name = input("Enter your name: ");
+print("Hello, " + name);
+
+// Another example with number conversion
+let age = input("How old are you? ");
+print("In 5 years you will be " + (parseInt(age) + 5) + " years old.");
+
+// Repeat Loop Examples
+print("\n--- Repeat Loop Examples ---");
+
+// Basic repeat loop
+print("Basic repeat loop:");
+repeat 3 times {
+    print("Hello, world!");
+}
+
+// Using variables with repeat
+let iterations = 4;
+print("\nRepeat with variable:");
+repeat iterations times {
+    print("Iteration using variable");
+}
+
+// Using expressions with repeat
+print("\nRepeat with expression:");
+repeat iterations - 2 times {
+    print("Iteration using expression");
+}
+
+// Nested repeat loops
+print("\nNested repeat loops:");
+repeat 2 times {
+    print("Outer loop");
+    repeat 3 times {
+        print("  Inner loop");
+    }
+}
+
+// Using repeat with array manipulation
+print("\nRepeat with array manipulation:");
+let numbers = [10, 20, 30, 40, 50];
+let index = 0;
+repeat 3 times {
+    numbers[index] = numbers[index] * 2;
+    print("numbers[" + index + "] = " + numbers[index]);
+    index = index + 1;
+}
+print("Final array: " + numbers);

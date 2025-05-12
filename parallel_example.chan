@@ -1,0 +1,35 @@
+// Simple parallel example
+
+// Define two functions that will execute in parallel
+let task1 = () => {
+    print("Task 1 starting at: " + timestamp());
+    sleep(2000); // Sleep for 2 seconds
+    print("Task 1 completed at: " + timestamp());
+};
+
+let task2 = () => {
+    print("Task 2 starting at: " + timestamp());
+    sleep(1000); // Sleep for 1 second
+    print("Task 2 completed at: " + timestamp());
+};
+
+print("Sequential execution:");
+let start = timestamp();
+task1();
+task2();
+let end = timestamp();
+print("Sequential execution took: " + (end - start) + " seconds");
+
+print("\nParallel execution:");
+start = timestamp();
+
+parallel {
+    task1();
+}
+
+parallel {
+    task2();
+}
+
+end = timestamp();
+print("Parallel execution took: " + (end - start) + " seconds"); 

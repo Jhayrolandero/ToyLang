@@ -1,0 +1,57 @@
+// Final parallel execution demo
+
+// Sequential execution
+print("=== SEQUENTIAL EXECUTION ===");
+let start = timestamp();
+
+// Task 1: Long computation (simulated with sleep)
+print("Starting Task 1 (2 second task)");
+sleep(2000);
+print("Completed Task 1 after " + (timestamp() - start) + " seconds");
+
+// Task 2: Medium computation
+print("Starting Task 2 (1 second task)");
+sleep(1000);
+print("Completed Task 2 after " + (timestamp() - start) + " seconds");
+
+// Task 3: Short computation
+print("Starting Task 3 (0.5 second task)");
+sleep(500);
+print("Completed Task 3 after " + (timestamp() - start) + " seconds");
+
+let end = timestamp();
+print("Total sequential execution time: " + (end - start) + " seconds");
+
+// Pause between tests
+print("\n");
+
+// Parallel execution
+print("=== PARALLEL EXECUTION ===");
+start = timestamp();
+
+// Launch all tasks in parallel
+parallel {
+    print("Starting Parallel Task 1 (2 second task)");
+    sleep(2000);
+    print("Completed Parallel Task 1 after " + (timestamp() - start) + " seconds");
+}
+
+parallel {
+    print("Starting Parallel Task 2 (1 second task)");
+    sleep(1000);
+    print("Completed Parallel Task 2 after " + (timestamp() - start) + " seconds");
+}
+
+parallel {
+    print("Starting Parallel Task 3 (0.5 second task)");
+    sleep(500);
+    print("Completed Parallel Task 3 after " + (timestamp() - start) + " seconds");
+}
+
+// Sleep to ensure all parallel tasks complete before checking time
+// In real code, you would implement proper synchronization
+sleep(2100);
+
+end = timestamp();
+print("Total parallel execution time: " + (end - start) + " seconds");
+print("(Notice that parallel execution takes only as long as the longest task!)"); 

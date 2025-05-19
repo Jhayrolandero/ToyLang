@@ -129,7 +129,8 @@ class Lexer:
                     'class': 'CLASS',
                     'new': 'NEW',
                     'let': 'LET',
-                    'const': 'CONST'
+                    'const': 'CONST',
+                    'null': 'NULL'
                 }
                 if identifier in reserved:
                     if identifier in ('true', 'false'):
@@ -747,6 +748,9 @@ class Parser:
         elif token.type == 'STRING':
             self.eat('STRING')
             return ('string', token.value)
+        elif token.type == 'NULL':
+            self.eat('NULL')
+            return ('null', None)
         elif token.type == 'NEW':
             self.eat('NEW')
             class_name = self.current_token.value
@@ -1000,6 +1004,8 @@ class Interpreter:
                 return node[1]
             elif ntype == 'string':
                 return node[1]
+            elif ntype == 'null':
+                return None
             elif ntype == 'var':
                 var = node[1]
                 if var in local_symbols:
@@ -1021,7 +1027,11 @@ class Interpreter:
                 right = self.evaluate(node[2], local_symbols)
                 if ntype == '+':
                     # Handle string concatenation with automatic conversion
-                    if isinstance(left, str) or isinstance(right, str):
+                    if isinstance(left, str) and isinstance(right, (int, float)):
+                        raise Exception(f"Type error: cannot add string and number")
+                    elif isinstance(right, str) and isinstance(left, (int, float)):
+                        raise Exception(f"Type error: cannot add number and string")
+                    elif isinstance(left, str) or isinstance(right, str):
                         return str(left) + str(right)
                     else:
                         return left + right
@@ -1241,6 +1251,29 @@ class Interpreter:
                     return local_symbols[func_name](*args)
                 elif func_name in self.symbol_table and callable(self.symbol_table[func_name]):
                     return self.symbol_table[func_name](*args)
+                # Check the function table
+                elif func_name in self.function_table:
+                    # Get the function definition
+                    func_def = self.function_table[func_name]
+                    # Get parameters and body
+                    params = func_def[2]
+                    body = func_def[3]
+                    
+                    # Check if number of arguments matches parameters
+                    if len(args) != len(params):
+                        raise Exception(f"Function '{func_name}' expected {len(params)} arguments, got {len(args)}")
+                    
+                    # Create a new environment for the function call
+                    func_locals = dict(zip(params, args))
+                    
+                    # Execute the function body
+                    try:
+                        result = None
+                        for stmt in body:
+                            result = self.evaluate(stmt, func_locals)
+                        return result
+                    except ReturnValue as rv:
+                        return rv.value
                 elif func_name == 'sleep':
                     # Built-in sleep function for demonstration
                     if len(args) != 1:

@@ -805,6 +805,11 @@ class Interpreter:
                 left = self.evaluate(node[1], local_symbols)
                 right = self.evaluate(node[2], local_symbols)
                 if ntype == '+':
+                    # Add type checking for string and number addition
+                    if isinstance(left, str) and isinstance(right, (int, float)):
+                        raise Exception(f"Type error: cannot add string and number")
+                    if isinstance(right, str) and isinstance(left, (int, float)):
+                        raise Exception(f"Type error: cannot add number and string")
                     return left + right
                 elif ntype == '-':
                     return left - right

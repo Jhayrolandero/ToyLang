@@ -15,28 +15,27 @@ sys.path.insert(0, script_dir)
 from use_case import run_file
 
 def print_help():
-    print("""Chan Programming Language
+    print("""Toy Programming Language
 
 Usage:
-    chan run <filename> [options]    Run a Chan program file
-    chan --help                      Show this help message
-    chan --version                   Show version information
-
-Options:
-    --debug, -d    Enable debug mode (shows tokens, AST, and execution trace)
+    toy run <filename> [options]    Run a Toy program file
+    toy --help                      Show this help message
+    toy --version                   Show version information
+z
+Optionps:
+    --debug, -d       Enable debug mode (shows tokens, AST, and execution trace)
+    --ast             Show AST representation of the program
+    --verbose, -v     Show detailed execution steps (token stream, parse trace, eval steps)
 
 Examples:
-    chan run program.chan            Run program.chan
-    chan run test.chan --debug       Run test.chan with debug output
-    chan run ./test.chan -d          Run test.chan with debug output
-
-Note:
-    - Files must have .chan extension
-    - Repeat loop syntax ('repeat X times { ... }') is supported
-    - For interactive mode, run without arguments""")
+    toy run program.toy            Run program.toy
+    toy run test.toy --debug       Run test.toy with debug output
+    toy run ./test.toy -d          Run test.toy with debug output
+    toy run program.toy --ast      Show AST representation
+    toy run program.toy --verbose  Show detailed execution steps""")
 
 def print_version():
-    print("Chan Programming Language v1.0.0")
+    print("Toy Programming Language v1.0.0")
 
 def has_repeat_loops(filename):
     """Check if a file contains repeat loop syntax"""
@@ -49,12 +48,14 @@ def has_repeat_loops(filename):
         return False
 
 def main():
-    parser = argparse.ArgumentParser(description='Chan Programming Language', add_help=False)
+    parser = argparse.ArgumentParser(description='Toy Programming Language', add_help=False)
     parser.add_argument('command', nargs='?', help='Command to execute (run)')
     parser.add_argument('filename', nargs='?', help='File to run')
     parser.add_argument('--debug', '-d', action='store_true', help='Enable debug mode')
+    parser.add_argument('--ast', action='store_true', help='Show AST representation')
+    parser.add_argument('--verbose', '-v', action='store_true', help='Show detailed execution steps')
     parser.add_argument('--help', '-h', action='store_true', help='Show help message')
-    parser.add_argument('--version', '-v', action='store_true', help='Show version information')
+    parser.add_argument('--version', '-V', action='store_true', help='Show version information')
 
     args = parser.parse_args()
 
@@ -65,8 +66,8 @@ def main():
         print_version()
         sys.exit(0)
     elif args.command == 'run' and args.filename:
-        if not args.filename.endswith('.chan'):
-            print("Error: File must have .chan extension")
+        if not args.filename.endswith('.toy'):
+            print("Error: File must have .toy extension")
             sys.exit(1)
             
         # Check if the file has repeat loops
@@ -76,7 +77,7 @@ def main():
             os.system(f"python3 {script_dir}/mini_chan.py {args.filename} {debug_flag}")
         else:
             # Use regular interpreter for other files
-            run_file(args.filename, debug=args.debug)
+            run_file(args.filename, debug=args.debug, verbose=args.ast, trace=args.verbose)
     else:
         print_help()
         sys.exit(1)

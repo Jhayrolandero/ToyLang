@@ -1,0 +1,10 @@
+let x = 5;
+let y = 10;
+let z = x + y * 2;
+print(z);
+
+if (x < y) {
+    print("x is less than y");
+} else {
+    print("x is greater than or equal to y");
+} 

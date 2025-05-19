@@ -6,6 +6,48 @@ import threading
 import time
 
 #############################
+# AST Node Classes
+#############################
+
+class ASTNode:
+    def __init__(self):
+        pass
+
+    def __repr__(self):
+        return self.__class__.__name__
+
+class Assign(ASTNode):
+    def __init__(self, left, right):
+        self.left = left
+        self.right = right
+
+    def __repr__(self):
+        return f"Assign({self.left}, {self.right})"
+
+class Add(ASTNode):
+    def __init__(self, left, right):
+        self.left = left
+        self.right = right
+
+    def __repr__(self):
+        return f"Add({self.left}, {self.right})"
+
+class Multiply(ASTNode):
+    def __init__(self, left, right):
+        self.left = left
+        self.right = right
+
+    def __repr__(self):
+        return f"Multiply({self.left}, {self.right})"
+
+class Variable(ASTNode):
+    def __init__(self, name):
+        self.name = name
+
+    def __repr__(self):
+        return self.name
+
+#############################
 # Lexer Implementation
 #############################
 
@@ -240,7 +282,7 @@ class Lexer:
                 self.advance()
                 return Token('LT', '<', self.lineno)
                 
-            self.error(f"Invalid character '{self.current_char}'")
+            self.error(f"Invalid token '{self.current_char}'")
             
         return Token('EOF', None)
 
@@ -921,6 +963,8 @@ class Interpreter:
             ntype = node[0]
             if self.debug:
                 self.debug_print(f"Evaluating node: {ntype}")
+                if ntype in ('assign', 'declare', 'print', 'if', 'while', 'for'):
+                    self.debug_print(f"  Node details: {node}")
                 
             if ntype == 'program':
                 result = None
@@ -930,6 +974,8 @@ class Interpreter:
             elif ntype == 'assign':
                 var = node[1]
                 val = self.evaluate(node[2], local_symbols)
+                if self.debug:
+                    self.debug_print(f"  Assigning {val} to {var}")
                 # Check if variable is const
                 if var in self.symbol_table and isinstance(self.symbol_table[var], tuple) and self.symbol_table[var][1]:
                     raise Exception(f"Cannot reassign constant variable '{var}'")
@@ -1373,13 +1419,13 @@ class Interpreter:
 # REPL (Read-Eval-Print Loop)
 #############################
 
-def run_file(filename, debug=False):
+def run_file(filename, debug=False, verbose=False, trace=False):
     """Run a ToyLang program from a file."""
     try:
         with open(filename, 'r') as file:
             text = file.read()
             
-        if debug:
+        if debug or trace:
             print("[DEBUG] Running in debug mode")
             print("[DEBUG] File contents:")
             print("-------------------")
@@ -1393,7 +1439,7 @@ def run_file(filename, debug=False):
         
         # Create lexer, parser and interpreter
         lexer = Lexer(text)
-        if debug:
+        if debug or trace:
             print("\n[DEBUG] Tokenizing...")
             tokens = []
             while True:
@@ -1401,7 +1447,9 @@ def run_file(filename, debug=False):
                 tokens.append(token)
                 if token.type == 'EOF':
                     break
-            print("Tokens:", tokens)
+            print("Token Stream:")
+            for token in tokens:
+                print(f"  {token}")
             lexer = Lexer(text)  # Reset lexer for parser
             
         parser = Parser(lexer)
@@ -1409,21 +1457,27 @@ def run_file(filename, debug=False):
         parser.function_table = function_table
         parser.struct_table = struct_table
         
-        if debug:
+        if debug or verbose or trace:
             print("\n[DEBUG] Parsing...")
         result = parser.parse()
-        if debug:
+        if debug or verbose or trace:
             print("AST:", result)
+            if verbose:
+                return  # Exit after showing AST in verbose mode
             print("\n[DEBUG] Executing...")
             
-        interpreter = Interpreter(parser, debug=debug)
+        interpreter = Interpreter(parser, debug=debug or trace)
         interpreter.symbol_table = symbol_table
         interpreter.function_table = function_table
         interpreter.struct_table = struct_table
         
+        if trace:
+            print("\n[TRACE] Evaluation Steps:")
+            print("-------------------")
+            
         interpreter.evaluate(result)
         
-        if debug:
+        if debug or trace:
             print("\n[DEBUG] Final symbol table:", symbol_table)
             print("[DEBUG] Execution completed")
         

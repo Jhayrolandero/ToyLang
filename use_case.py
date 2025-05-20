@@ -130,7 +130,8 @@ class Lexer:
                     'new': 'NEW',
                     'let': 'LET',
                     'const': 'CONST',
-                    'null': 'NULL'
+                    'null': 'NULL',
+                    'delete': 'DELETE'
                 }
                 if identifier in reserved:
                     if identifier in ('true', 'false'):
@@ -298,11 +299,14 @@ class Parser:
                            | assignment
                            | print_statement
                            | return_statement
+                           | delete_statement
                            | expression"""
         if self.current_token.type == 'LET':
             return self.let_declaration()
         elif self.current_token.type == 'CONST':
             return self.const_declaration()
+        elif self.current_token.type == 'DELETE':
+            return self.delete_statement()
         elif self.current_token.type == 'ID':
             # Check for assignment
             if self.peek().type == 'EQUALS':
@@ -467,9 +471,30 @@ class Parser:
         """if_statement : IF LPAREN expression RPAREN LBRACE statement_list RBRACE
                         | IF LPAREN expression RPAREN LBRACE statement_list RBRACE ELSE LBRACE statement_list RBRACE"""
         self.eat('IF')
+        
+        # Check for missing opening parenthesis
+        if self.current_token.type != 'LPAREN':
+            if self.current_token.type == 'LBRACE':
+                self.error("Missing parentheses in if statement condition. Use if (condition) { ... } instead of if condition { ... }")
+            else:
+                self.error(f"Expected opening parenthesis '(' after 'if', got {self.current_token.type}")
+        
         self.eat('LPAREN')
         condition = self.expression()
+        
+        # Check for missing closing parenthesis
+        if self.current_token.type != 'RPAREN':
+            if self.current_token.type == 'LBRACE':
+                self.error("Missing closing parenthesis ')' before '{'. The correct syntax is if (condition) { ... }")
+            else:
+                self.error(f"Expected closing parenthesis ')' after condition, got {self.current_token.type}")
+        
         self.eat('RPAREN')
+        
+        # Check for opening brace
+        if self.current_token.type != 'LBRACE':
+            self.error(f"Expected opening brace '{{' after if condition, got {self.current_token.type}")
+            
         self.eat('LBRACE')
         true_branch = self.statement_list()
         self.eat('RBRACE')
@@ -486,9 +511,30 @@ class Parser:
     def while_loop(self):
         """while_loop : WHILE LPAREN expression RPAREN LBRACE statement_list RBRACE"""
         self.eat('WHILE')
+        
+        # Check for missing opening parenthesis
+        if self.current_token.type != 'LPAREN':
+            if self.current_token.type == 'LBRACE':
+                self.error("Missing parentheses in while loop condition. Use while (condition) { ... } instead of while condition { ... }")
+            else:
+                self.error(f"Expected opening parenthesis '(' after 'while', got {self.current_token.type}")
+        
         self.eat('LPAREN')
         condition = self.expression()
+        
+        # Check for missing closing parenthesis
+        if self.current_token.type != 'RPAREN':
+            if self.current_token.type == 'LBRACE':
+                self.error("Missing closing parenthesis ')' before '{'. The correct syntax is while (condition) { ... }")
+            else:
+                self.error(f"Expected closing parenthesis ')' after condition, got {self.current_token.type}")
+        
         self.eat('RPAREN')
+        
+        # Check for opening brace
+        if self.current_token.type != 'LBRACE':
+            self.error(f"Expected opening brace '{{' after while condition, got {self.current_token.type}")
+            
         self.eat('LBRACE')
         body = self.statement_list()
         self.eat('RBRACE')
@@ -497,13 +543,44 @@ class Parser:
     def for_loop(self):
         """for_loop : FOR LPAREN assignment SEMICOLON expression SEMICOLON assignment RPAREN LBRACE statement_list RBRACE"""
         self.eat('FOR')
+        
+        # Check for missing opening parenthesis
+        if self.current_token.type != 'LPAREN':
+            if self.current_token.type == 'LBRACE':
+                self.error("Missing parentheses in for loop. Use for (init; condition; update) { ... } instead of for init; condition; update { ... }")
+            else:
+                self.error(f"Expected opening parenthesis '(' after 'for', got {self.current_token.type}")
+                
         self.eat('LPAREN')
         init = self.assignment()
+        
+        # Check for first semicolon
+        if self.current_token.type != 'SEMICOLON':
+            self.error(f"Expected semicolon ';' after initialization in for loop, got {self.current_token.type}")
+            
         self.eat('SEMICOLON')
         condition = self.expression()
+        
+        # Check for second semicolon
+        if self.current_token.type != 'SEMICOLON':
+            self.error(f"Expected semicolon ';' after condition in for loop, got {self.current_token.type}")
+            
         self.eat('SEMICOLON')
         update = self.assignment()
+        
+        # Check for missing closing parenthesis
+        if self.current_token.type != 'RPAREN':
+            if self.current_token.type == 'LBRACE':
+                self.error("Missing closing parenthesis ')' before '{'. The correct syntax is for (init; condition; update) { ... }")
+            else:
+                self.error(f"Expected closing parenthesis ')' after for loop components, got {self.current_token.type}")
+                
         self.eat('RPAREN')
+        
+        # Check for opening brace
+        if self.current_token.type != 'LBRACE':
+            self.error(f"Expected opening brace '{{' after for loop, got {self.current_token.type}")
+            
         self.eat('LBRACE')
         body = self.statement_list()
         self.eat('RBRACE')
@@ -890,6 +967,14 @@ class Parser:
         
         return ('repeat', count_expr, statements)
         
+    def delete_statement(self):
+        """delete_statement : DELETE LPAREN expression RPAREN"""
+        self.eat('DELETE')
+        self.eat('LPAREN')
+        expr = self.expression()
+        self.eat('RPAREN')
+        return ('delete', expr)
+        
     def parse(self):
         return self.program()
 
@@ -907,6 +992,7 @@ class Interpreter:
         self.symbol_table = parser.symbol_table
         self.function_table = parser.function_table
         self.struct_table = parser.struct_table
+        self.deleted_objects = set()  # Track deleted objects
         self.debug = debug
         
     def debug_print(self, message):
@@ -936,6 +1022,21 @@ class Interpreter:
                 local_symbols[var] = val
                 self.symbol_table[var] = val
                 return val
+            elif ntype == 'delete':
+                # Evaluate the expression to get the object to delete
+                obj = self.evaluate(node[1], local_symbols)
+                # Add the object to the deleted_objects set
+                self.deleted_objects.add(id(obj))
+                
+                # If it's a variable, we need to also handle removing it from symbol tables
+                if node[1][0] == 'var':
+                    var_name = node[1][1]
+                    if var_name in local_symbols:
+                        del local_symbols[var_name]
+                    if var_name in self.symbol_table:
+                        del self.symbol_table[var_name]
+                
+                return None
             elif ntype == 'array_assign':
                 array_name = node[1]
                 index = self.evaluate(node[2], local_symbols)

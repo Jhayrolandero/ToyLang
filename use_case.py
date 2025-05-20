@@ -1277,9 +1277,9 @@ class Interpreter:
                 if ntype == '+':
                     # Handle string concatenation with automatic conversion
                     if isinstance(left, str) and isinstance(right, (int, float)):
-                        raise Exception(f"Type error: cannot add string and number")
+                        raise Exception(f"Type error at line {self.current_line}: Cannot concatenate string '{left}' with number {right}. Convert the number to string first using string() or use string concatenation operator '..'")
                     elif isinstance(right, str) and isinstance(left, (int, float)):
-                        raise Exception(f"Type error: cannot add number and string")
+                        raise Exception(f"Type error at line {self.current_line}: Cannot concatenate number {left} with string '{right}'. Convert the number to string first using string() or use string concatenation operator '..'")
                     elif isinstance(left, str) or isinstance(right, str):
                         return str(left) + str(right)
                     else:

@@ -172,7 +172,8 @@ class Lexer:
                     'new': 'NEW',
                     'let': 'LET',
                     'const': 'CONST',
-                    'null': 'NULL'
+                    'null': 'NULL',
+                    'this': 'THIS'
                 }
                 if identifier in reserved:
                     if identifier in ('true', 'false'):
@@ -324,7 +325,7 @@ class Parser:
         """statement : simple_statement SEMICOLON
                      | compound_statement SEMICOLON
                      | compound_statement"""
-        if self.current_token.type in ('DEF', 'IF', 'WHILE', 'FOR', 'STRUCT', 'CLASS', 'PARALLEL'):
+        if self.current_token.type in ('DEF', 'IF', 'WHILE', 'FOR', 'STRUCT', 'CLASS', 'PARALLEL', 'REPEAT'):
             stmt = self.compound_statement()
             if self.current_token.type == 'SEMICOLON':
                 self.eat('SEMICOLON')
@@ -553,14 +554,16 @@ class Parser:
         
     def print_statement(self):
         """print_statement : PRINT LPAREN expression RPAREN"""
+        token = self.current_token  # Store the token to get line number
         self.eat('PRINT')
         self.eat('LPAREN')
         expr = self.expression()
         self.eat('RPAREN')
-        return ('print', expr)
+        return ('print', expr, token.lineno)
         
     def input_statement(self):
         """input_statement : INPUT LPAREN (expression)? RPAREN"""
+        token = self.current_token  # Store the token to get line number
         self.eat('INPUT')
         self.eat('LPAREN')
         
@@ -569,7 +572,7 @@ class Parser:
             prompt = self.expression()
             
         self.eat('RPAREN')
-        return ('input', prompt)
+        return ('input', prompt, token.lineno)
         
     def parseint_statement(self):
         """parseint_statement : PARSEINT LPAREN expression RPAREN"""
@@ -745,6 +748,15 @@ class Parser:
             node = self.expression()
             self.eat('RPAREN')
             return node
+        # Class instance creation: new Person()
+        elif token.type == 'NEW':
+            self.eat('NEW')
+            class_name = self.current_token.value
+            self.eat('ID')
+            self.eat('LPAREN')
+            args = self.arg_list()
+            self.eat('RPAREN')
+            return ('new', class_name, args)
         # Arrow function: x => ...
         elif token.type == 'ID':
             id_name = token.value
@@ -793,14 +805,6 @@ class Parser:
         elif token.type == 'NULL':
             self.eat('NULL')
             return ('null', None)
-        elif token.type == 'NEW':
-            self.eat('NEW')
-            class_name = self.current_token.value
-            self.eat('ID')
-            self.eat('LPAREN')
-            args = self.arg_list()
-            self.eat('RPAREN')
-            return ('new', class_name, args)
         else:
             self.error(f"Unexpected token {token.type} in expression")
             
@@ -838,13 +842,12 @@ class Parser:
                       | method
                       | empty"""
         methods = []
-        while self.current_token.type == 'DEF':
+        while self.current_token.type == 'ID':
             methods.append(self.method())
         return methods
         
     def method(self):
-        """method : DEF ID LPAREN param_list RPAREN LBRACE statement_list RBRACE"""
-        self.eat('DEF')
+        """method : ID LPAREN param_list RPAREN LBRACE statement_list RBRACE"""
         method_name = self.current_token.value
         self.eat('ID')
         self.eat('LPAREN')
@@ -917,17 +920,36 @@ class Parser:
         
     def repeat_loop(self):
         """repeat_loop : REPEAT expression TIMES LBRACE statement_list RBRACE"""
+        token = self.current_token  # Store for error line tracking
         self.eat('REPEAT')
         
-        # Parse the expression for the number of times to repeat
-        count_expr = self.expression()
+        # Parse the expression for the number of times to repeat - handle simple cases first
+        if self.current_token.type == 'NUMBER':
+            count_val = self.current_token.value
+            self.eat('NUMBER')
+            count_expr = ('number', count_val)
+        elif self.current_token.type == 'ID':
+            var_name = self.current_token.value
+            self.eat('ID')
+            count_expr = ('var', var_name)
+        else:
+            # Try for more complex expressions
+            count_expr = self.expression()
         
         # Parse the "times" keyword
+        if self.current_token.type != 'TIMES':
+            self.error("Expected 'times' keyword in repeat loop")
         self.eat('TIMES')
         
         # Parse the block of code to repeat
+        if self.current_token.type != 'LBRACE':
+            self.error("Expected '{' after 'times' keyword in repeat loop")
         self.eat('LBRACE')
+        
         statements = self.statement_list()
+        
+        if self.current_token.type != 'RBRACE':
+            self.error("Expected '}' to close repeat loop")
         self.eat('RBRACE')
         
         return ('repeat', count_expr, statements)
@@ -938,6 +960,17 @@ class Parser:
 #############################
 # Interpreter Implementation
 #############################
+
+class ToyLangError(Exception):
+    """Custom exception class for ToyLang that includes line numbers"""
+    def __init__(self, message, lineno=None):
+        self.message = message
+        self.lineno = lineno
+        # Include line number in the main error message for better handling
+        if lineno is not None:
+            super().__init__(f"{message} (at line {lineno})")
+        else:
+            super().__init__(message)
 
 class ReturnValue(Exception):
     def __init__(self, value):
@@ -950,14 +983,46 @@ class Interpreter:
         self.function_table = parser.function_table
         self.struct_table = parser.struct_table
         self.debug = debug
+        self.current_line = None
+        self.file_lines = {}
         
     def debug_print(self, message):
         if self.debug:
             print(f"[DEBUG] {message}")
+    
+    def set_file_content(self, filename, content):
+        """Store the file content for better error reporting"""
+        self.filename = filename
+        self.file_lines = content.splitlines()
+    
+    def track_line(self, node):
+        """Extract line number information from a node if possible"""
+        if isinstance(node, tuple) and len(node) > 1:
+            # For print statements and other nodes with line number as the last element
+            if len(node) > 2 and isinstance(node[-1], int):
+                self.current_line = node[-1]
+                return
             
+            # For token-based line numbers
+            if isinstance(node[1], Token) and node[1].lineno is not None:
+                self.current_line = node[1].lineno
+                return
+                
+            # For nodes with explicit lineno attribute
+            elif hasattr(node, 'lineno') and node.lineno is not None:
+                self.current_line = node.lineno
+                return
+                
+        # Debug line tracking if debug mode is enabled
+        if self.debug and self.current_line is not None:
+            self.debug_print(f"Current line: {self.current_line}")
+
     def evaluate(self, node, local_symbols=None):
         if local_symbols is None:
             local_symbols = {}
+        
+        # Try to extract line number from node
+        self.track_line(node)
             
         if isinstance(node, tuple):
             ntype = node[0]
@@ -965,7 +1030,7 @@ class Interpreter:
                 self.debug_print(f"Evaluating node: {ntype}")
                 if ntype in ('assign', 'declare', 'print', 'if', 'while', 'for'):
                     self.debug_print(f"  Node details: {node}")
-                
+            
             if ntype == 'program':
                 result = None
                 for stmt in node[1]:
@@ -979,8 +1044,17 @@ class Interpreter:
                 # Check if variable is const
                 if var in self.symbol_table and isinstance(self.symbol_table[var], tuple) and self.symbol_table[var][1]:
                     raise Exception(f"Cannot reassign constant variable '{var}'")
-                local_symbols[var] = val
-                self.symbol_table[var] = val
+                
+                # Special handling for null: remove from symbol table to allow redeclaration
+                if val is None:
+                    if var in local_symbols:
+                        del local_symbols[var]
+                    if var in self.symbol_table:
+                        del self.symbol_table[var]
+                else:
+                    local_symbols[var] = val
+                    self.symbol_table[var] = val
+                    
                 return val
             elif ntype == 'array_assign':
                 array_name = node[1]
@@ -993,53 +1067,60 @@ class Interpreter:
                     self.debug_print(f"Symbol table: {self.symbol_table.keys()}")
                 
                 # Get the array
-                if array_name in local_symbols:
-                    array = local_symbols[array_name]
-                    if self.debug:
-                        self.debug_print(f"Found in local_symbols: {array}")
-                elif array_name in self.symbol_table:
-                    array = self.symbol_table[array_name]
-                    if self.debug:
-                        self.debug_print(f"Found in symbol_table: {array}")
-                else:
-                    raise Exception(f"Undefined variable: {array_name}")
-                
-                # Check if array is a tuple (const declaration)
-                if isinstance(array, tuple):
-                    if array[1]:  # Check if const
-                        raise Exception(f"Cannot modify constant array '{array_name}'")
-                    array = array[0]  # Extract the actual array
-                
-                if not isinstance(array, list):
-                    raise Exception(f"Variable '{array_name}' is not an array")
-                if not isinstance(index, int):
-                    raise Exception("Array index must be an integer")
-                if index < 0 or index >= len(array):
-                    raise Exception(f"Array index {index} out of bounds (0-{len(array)-1})")
-                
-                # Update array element
-                array[index] = value
-                
-                # Update the array in the symbol tables
-                if array_name in local_symbols:
-                    if isinstance(local_symbols[array_name], tuple):
-                        local_symbols[array_name] = (array, local_symbols[array_name][1])
+                self.current_context = 'array_access'
+                try:
+                    if array_name in local_symbols:
+                        array = local_symbols[array_name]
+                        if self.debug:
+                            self.debug_print(f"Found in local_symbols: {array}")
+                    elif array_name in self.symbol_table:
+                        array = self.symbol_table[array_name]
+                        if self.debug:
+                            self.debug_print(f"Found in symbol_table: {array}")
                     else:
-                        local_symbols[array_name] = array
-                if array_name in self.symbol_table:
-                    if isinstance(self.symbol_table[array_name], tuple):
-                        self.symbol_table[array_name] = (array, self.symbol_table[array_name][1])
-                    else:
-                        self.symbol_table[array_name] = array
-                
-                return value
+                        raise Exception(f"Undefined object: {array_name}")
+                    
+                    # Check if array is a tuple (const declaration)
+                    if isinstance(array, tuple):
+                        if array[1]:  # Check if const
+                            raise Exception(f"Cannot modify constant array '{array_name}'")
+                        array = array[0]  # Extract the actual array
+                    
+                    if not isinstance(array, list):
+                        raise Exception(f"Object '{array_name}' is not an array")
+                    if not isinstance(index, int):
+                        raise Exception("Array index must be an integer")
+                    if index < 0 or index >= len(array):
+                        raise Exception(f"Array index {index} out of bounds (0-{len(array)-1})")
+                    
+                    # Update array element
+                    array[index] = value
+                    
+                    # Update the array in the symbol tables
+                    if array_name in local_symbols:
+                        if isinstance(local_symbols[array_name], tuple):
+                            local_symbols[array_name] = (array, local_symbols[array_name][1])
+                        else:
+                            local_symbols[array_name] = array
+                    if array_name in self.symbol_table:
+                        if isinstance(self.symbol_table[array_name], tuple):
+                            self.symbol_table[array_name] = (array, self.symbol_table[array_name][1])
+                        else:
+                            self.symbol_table[array_name] = array
+                    
+                    return value
+                finally:
+                    self.current_context = 'variable'
             elif ntype == 'declare':
                 var_name = node[1]
                 is_const = node[3]
-                # Check if variable is already declared
-                if var_name in local_symbols or var_name in self.symbol_table:
+                
+                # Check if variable is already declared (but allow if it was nullified)
+                if (var_name in local_symbols or var_name in self.symbol_table):
                     raise Exception(f"Redeclaration error: Variable '{var_name}' has already been declared")
+                    
                 val = self.evaluate(node[2], local_symbols)
+                
                 # Store value with const flag
                 local_symbols[var_name] = (val, is_const)
                 self.symbol_table[var_name] = val  # Store just the value in the symbol table
@@ -1067,7 +1148,17 @@ class Interpreter:
                         return val[0]
                     return val
                 else:
-                    raise Exception(f"Undefined variable: {var}")
+                    # Check if this is an array access context (will be used in array_access)
+                    parent_context = getattr(self, 'current_context', 'variable')
+                    
+                    # Debug output for line number information
+                    if self.debug:
+                        self.debug_print(f"Undefined variable '{var}' at line {self.current_line}")
+                        
+                    if parent_context == 'array_access':
+                        raise ToyLangError(f"Undefined object: {var}", self.current_line)
+                    else:
+                        raise ToyLangError(f"Undefined variable: {var}", self.current_line)
             elif ntype in ('+', '-', '*', '/', '==', '!=', '>', '<', '>=', '<=', 'and', 'or'):
                 left = self.evaluate(node[1], local_symbols)
                 right = self.evaluate(node[2], local_symbols)
@@ -1130,8 +1221,9 @@ class Interpreter:
                             if len(args) != len(method_params):
                                 raise Exception(f"Method {method_name} expected {len(method_params)} arguments, got {len(args)}")
                             method_env = dict(zip(method_params, args))
+                            # Add 'this' reference to the instance
                             method_env['this'] = instance
-                            method_env.update(local_symbols)
+                            # Execute method body with method environment
                             try:
                                 result = None
                                 for stmt in method_body:
@@ -1202,6 +1294,10 @@ class Interpreter:
                 return outputs
             elif ntype == 'print':
                 val = self.evaluate(node[1], local_symbols)
+                if len(node) > 2:
+                    self.current_line = node[2]  # Extract line number
+                    if self.debug:
+                        self.debug_print(f"Setting current line to {self.current_line} from print statement")
                 print(val)
                 return val
             elif ntype == 'input':
@@ -1210,6 +1306,9 @@ class Interpreter:
                     prompt = self.evaluate(node[1], local_symbols)
                     # Print without newline
                     print(prompt, end='', flush=True)
+                
+                if len(node) > 2:
+                    self.current_line = node[2]  # Extract line number
                     
                 # Get user input
                 try:
@@ -1234,21 +1333,12 @@ class Interpreter:
                 
                 if isinstance(obj, dict):
                     if field in obj:
-                        if isinstance(obj[field], tuple) and obj[field][0] == 'method':
-                            # Method call
-                            method_params = obj[field][1]
-                            method_body = obj[field][2]
-                            local_env = {'self': obj}  # Add self reference
-                            try:
-                                result = None
-                                for stmt in method_body:
-                                    result = self.evaluate(stmt, local_env)
-                                return result
-                            except ReturnValue as rv:
-                                return rv.value
+                        # If the field is a method, return it without executing
+                        if callable(obj[field]):
+                            return obj[field]
                         return obj[field]
                     elif '__class__' in obj:
-                        raise Exception(f"Method '{field}' not found in class {obj['__class__']}")
+                        raise Exception(f"Field '{field}' not found in class {obj['__class__']}")
                     else:
                         raise Exception(f"Field '{field}' not found in object")
                 else:
@@ -1275,17 +1365,23 @@ class Interpreter:
                 elements = [self.evaluate(elem, local_symbols) for elem in node[1]]
                 return elements
             elif ntype == 'array_access':
-                array = self.evaluate(node[1], local_symbols)
-                index = self.evaluate(node[2], local_symbols)
-                
-                if not isinstance(array, list):
-                    raise Exception("Cannot access index on non-array type")
-                if not isinstance(index, int):
-                    raise Exception("Array index must be an integer")
-                if index < 0 or index >= len(array):
-                    raise Exception(f"Array index {index} out of bounds (0-{len(array)-1})")
+                # Set a flag to indicate we're in an array access context
+                self.current_context = 'array_access'
+                try:
+                    array = self.evaluate(node[1], local_symbols)
+                    index = self.evaluate(node[2], local_symbols)
                     
-                return array[index]
+                    if not isinstance(array, list):
+                        raise Exception("Cannot access index on non-array type")
+                    if not isinstance(index, int):
+                        raise Exception("Array index must be an integer")
+                    if index < 0 or index >= len(array):
+                        raise Exception(f"Array index {index} out of bounds (0-{len(array)-1})")
+                        
+                    return array[index]
+                finally:
+                    # Reset the context flag when done
+                    self.current_context = 'variable'
             elif ntype == 'func_call':
                 # Get the function name
                 func_name = node[1]
@@ -1332,6 +1428,28 @@ class Interpreter:
                 elif func_name == 'timestamp':
                     # Built-in timestamp function that returns current time in seconds
                     return time.time()
+                elif func_name == 'delete':
+                    # Built-in delete function to remove variables
+                    if len(args) != 1:
+                        raise Exception("delete() expects 1 argument (variable name)")
+                    
+                    # Get the variable name directly from the AST node
+                    # The argument to delete should be the name of the variable without evaluation
+                    if len(node[2]) != 1:
+                        raise Exception("delete() expects 1 argument")
+                        
+                    arg_node = node[2][0]
+                    if arg_node[0] != 'var':
+                        raise Exception("delete() argument must be a variable name")
+                        
+                    var_name = arg_node[1]  # Extract the variable name from the 'var' node
+                    
+                    # Remove variable from both symbol tables
+                    if var_name in local_symbols:
+                        del local_symbols[var_name]
+                    if var_name in self.symbol_table:
+                        del self.symbol_table[var_name]
+                    return None
                 elif f"__class_{func_name}" in self.function_table:
                     # It's a class constructor call
                     class_def = self.function_table[f"__class_{func_name}"]
@@ -1397,15 +1515,15 @@ class Interpreter:
                     raise Exception("Repeat count cannot be negative")
                 
                 # Execute the statements multiple times
-                result = None
                 for _ in range(count):
                     try:
                         for stmt in node[2]:
-                            result = self.evaluate(stmt, local_symbols)
+                            self.evaluate(stmt, local_symbols)
                     except ReturnValue as rv:
                         return rv.value
                 
-                return result
+                # Return None instead of the last result
+                return None
             else:
                 raise Exception(f"Unknown node type: {ntype}")
         else:
@@ -1470,6 +1588,7 @@ def run_file(filename, debug=False, verbose=False, trace=False):
         interpreter.symbol_table = symbol_table
         interpreter.function_table = function_table
         interpreter.struct_table = struct_table
+        interpreter.set_file_content(filename, text)  # Pass file content for error reporting
         
         if trace:
             print("\n[TRACE] Evaluation Steps:")
@@ -1484,7 +1603,23 @@ def run_file(filename, debug=False, verbose=False, trace=False):
     except FileNotFoundError:
         print(f"Error: File '{filename}' not found")
     except Exception as e:
-        print(f"Error: {e}")
+        # Add line number information to the exception message if available
+        if hasattr(e, 'lineno') and e.lineno is not None:
+            print(f"Error at line {e.lineno}: {str(e)}")
+        else:
+            print(f"Error: {str(e)}")
+        
+        # Print file context if line number is available
+        if hasattr(e, 'lineno') and e.lineno is not None:
+            try:
+                with open(filename, 'r') as f:
+                    lines = f.readlines()
+                
+                if 1 <= e.lineno <= len(lines):
+                    # Show the line with the error
+                    print(f"Line {e.lineno}: {lines[e.lineno-1].strip()}")
+            except:
+                pass  # If we can't read the file, just continue
 
 def main():
     if len(sys.argv) > 1:

@@ -1,0 +1,7 @@
+// Test repeat loop return value
+repeat 3 times {
+    print("No return value");
+}
+
+// Normal print for comparison
+print("Normal print"); 

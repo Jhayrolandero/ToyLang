@@ -1,2 +1,2 @@
-let x = [1, 2, 3];  x = null;
-print(x);
+let square = x => x * x;
+print(square(7));

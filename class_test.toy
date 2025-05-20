@@ -1,0 +1,8 @@
+class Person { 
+     greet() {
+          print("Hello"); 
+     }
+}
+
+let p = new Person();
+p.greet(); 

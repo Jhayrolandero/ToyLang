@@ -1,0 +1,138 @@
+#!/usr/bin/env python3
+
+import sys
+import os
+import argparse
+import re
+import traceback
+
+# Get the directory where this script is located
+script_dir = os.path.dirname(os.path.abspath(__file__))
+
+# Add the script directory to Python path
+sys.path.insert(0, script_dir)
+
+# Import the interpreter
+from use_case import run_file, ToyLangError
+
+def print_help():
+    print("""Toy Programming Language
+
+Usage:
+    toy run <filename> [options]    Run a Toy program file
+    toy --help                      Show this help message
+    toy --version                   Show version information
+
+Options:
+    --debug, -d       Enable debug mode (shows tokens, AST, and execution trace)
+    --ast             Show AST representation of the program
+    --verbose, -v     Show detailed execution steps (token stream, parse trace, eval steps)
+
+Examples:
+    toy run program.toy            Run program.toy
+    toy run test.toy --debug       Run test.toy with debug output
+    toy run ./test.toy -d          Run test.toy with debug output
+    toy run program.toy --ast      Show AST representation
+    toy run program.toy --verbose  Show detailed execution steps""")
+
+def print_version():
+    print("Toy Programming Language v1.0.0")
+
+def has_repeat_loops(filename):
+    """Check if a file contains repeat loop syntax"""
+    try:
+        with open(filename, 'r') as f:
+            content = f.read()
+            # Look for 'repeat X times {' pattern
+            return bool(re.search(r'repeat\s+\w+\s+times\s*\{', content))
+    except:
+        return False
+
+def print_file_context(filename, line_number):
+    """Print context from the file for the error line with improved visual highlighting"""
+    try:
+        with open(filename, 'r') as f:
+            lines = f.readlines()
+            
+        if 1 <= line_number <= len(lines):
+            # Print more context around the error line
+            start = max(1, line_number - 2)
+            end = min(len(lines), line_number + 2)
+            
+            # Print a header to separate the error context
+            print("\nError location:")
+            print("─" * 40)
+            
+            # Print context with line numbers and improved highlighting
+            for i in range(start, end + 1):
+                if i == line_number:
+                    # Highlight the error line with an arrow and red color if terminal supports it
+                    print(f"\033[31m→ {i:3d}│ {lines[i-1].rstrip()}\033[0m")
+                else:
+                    print(f"  {i:3d}│ {lines[i-1].rstrip()}")
+            
+            print("─" * 40)
+    except Exception as e:
+        # If we can't read the file, just continue without context
+        pass
+
+def main():
+    parser = argparse.ArgumentParser(description='Toy Programming Language', add_help=False)
+    parser.add_argument('command', nargs='?', help='Command to execute (run)')
+    parser.add_argument('filename', nargs='?', help='File to run')
+    parser.add_argument('--debug', '-d', action='store_true', help='Enable debug mode')
+    parser.add_argument('--ast', action='store_true', help='Show AST representation')
+    parser.add_argument('--verbose', '-v', action='store_true', help='Show detailed execution steps')
+    parser.add_argument('--help', '-h', action='store_true', help='Show help message')
+    parser.add_argument('--version', '-V', action='store_true', help='Show version information')
+
+    args = parser.parse_args()
+
+    if args.help:
+        print_help()
+        sys.exit(0)
+    elif args.version:
+        print_version()
+        sys.exit(0)
+    elif args.command == 'run' and args.filename:
+        if not args.filename.endswith('.toy'):
+            print("Error: File must have .toy extension")
+            sys.exit(1)
+            
+        # Always use the regular interpreter even for repeat loops
+        # The repeat loop syntax is now supported directly in the main interpreter
+        try:
+            # Use regular interpreter for all files
+            run_file(args.filename, debug=args.debug, verbose=args.ast, trace=args.verbose)
+        except Exception as e:
+            error_message = str(e)
+            line_number = None
+            
+            # Explicit handling for ToyLangError
+            if isinstance(e, ToyLangError):
+                line_number = e.lineno
+                error_message = e.message if hasattr(e, 'message') else str(e)
+            else:
+                # Try to extract line number from error message
+                match = re.search(r'at line (\d+)', error_message)
+                if match:
+                    line_number = int(match.group(1))
+            
+            if line_number:
+                print(f"Error at line {line_number}: {error_message}")
+                print_file_context(args.filename, line_number)
+            else:
+                print(f"Error: {error_message}")
+                
+                # Try to extract any line information from the AST node in the traceback
+                if args.debug:
+                    print("\nDebug traceback:")
+                    traceback.print_exc()
+            
+            sys.exit(1)
+    else:
+        print_help()
+        sys.exit(1)
+
+if __name__ == '__main__':
+    main() 

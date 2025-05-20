@@ -1,4 +1,0 @@
-// Simple repeat loop test
-repeat 3 times {
-    print("Testing repeat loop");
-} 

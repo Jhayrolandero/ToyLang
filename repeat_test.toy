@@ -1,0 +1,18 @@
+// Basic repeat loop with a literal
+repeat 3 times {
+    print("Hi");
+}
+
+// Repeat loop with a variable
+let count = 5;
+repeat count times {
+    print("Hello from variable loop");
+}
+
+// Nested repeat loops
+repeat 2 times {
+    print("Outer loop");
+    repeat 3 times {
+        print("  Inner loop");
+    }
+} 
